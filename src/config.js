@@ -13,7 +13,7 @@ export const CONFIG = {
     availabilityEnglish: "Available Now",
     // Set to false or a date string if not available. e.g., "2026 අගෝස්තු 15"
     tentativeDate: null,
-    coverImage: "/book-cover.png",
+    coverImage: "./book-cover.png",
   },
   delivery: {
     // Citypak Courier configuration
