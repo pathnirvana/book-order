@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { CONFIG } from './config';
 
 // -------------------------------------------------------------
@@ -40,6 +40,29 @@ onMounted(() => {
     theme.value = 'light';
   }
   updateThemeClass();
+
+  // Load configuration from URL search query parameters if present
+  const params = new URLSearchParams(window.location.search);
+  const qParam = params.get('qty') || params.get('q');
+  if (qParam) {
+    const parsedQty = parseInt(qParam, 10);
+    if (!isNaN(parsedQty) && parsedQty > 0) {
+      quantity.value = parsedQty;
+    }
+  }
+
+  const mParam = params.get('method') || params.get('m');
+  if (mParam && ['courier', 'pickup', 'pickmeFlash'].includes(mParam)) {
+    deliveryMethod.value = mParam;
+  }
+});
+
+// Synchronize quantity and deliveryMethod back to the URL query parameters dynamically
+watch([quantity, deliveryMethod], () => {
+  const url = new URL(window.location.href);
+  url.searchParams.set('qty', quantity.value);
+  url.searchParams.set('method', deliveryMethod.value);
+  window.history.replaceState({}, '', url.pathname + url.search + url.hash);
 });
 
 function updateThemeClass() {
