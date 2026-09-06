@@ -5,9 +5,12 @@ import { CONFIG } from './config';
 // -------------------------------------------------------------
 // State Management
 // -------------------------------------------------------------
-const lang = ref('si'); // default to Sinhala
-const theme = ref('light'); // default to Light Mode
-const quantity = ref(50);
+// Initialize quantities for each book from CONFIG defaultQty
+const quantities = ref({});
+CONFIG.books.forEach(b => {
+  quantities.value[b.id] = b.defaultQty ?? 0;
+});
+
 const deliveryMethod = ref('courier'); // courier, pickup, pickmeFlash
 
 // Form Fields
@@ -15,12 +18,10 @@ const name = ref('');
 const address = ref('');
 const phone = ref('');
 
-// Tracking interaction for validation (to avoid showing errors on load)
 const nameTouched = ref(false);
 const addressTouched = ref(false);
 const phoneTouched = ref(false);
 
-// Copied states for tooltips
 const copiedStates = ref({
   accountNumber: false,
   accountName: false,
@@ -28,26 +29,66 @@ const copiedStates = ref({
   totalAmount: false,
 });
 
+// Modal state for viewing book info
+const selectedBookForModal = ref(null);
+
+function openBookModal(book) {
+  selectedBookForModal.value = book;
+}
+
+function closeBookModal() {
+  selectedBookForModal.value = null;
+}
+
+function incrementQty(bookId) {
+  const current = Number(quantities.value[bookId]) || 0;
+  quantities.value[bookId] = current + 1;
+}
+
+function decrementQty(bookId) {
+  const current = Number(quantities.value[bookId]) || 0;
+  if (current > 0) {
+    quantities.value[bookId] = current - 1;
+  }
+}
+
 // -------------------------------------------------------------
-// Initialization
+// Initialization & URL Query Sync
 // -------------------------------------------------------------
 onMounted(() => {
-  // Saved theme preference or default to light
-  const savedTheme = localStorage.getItem('theme');
-  if (savedTheme) {
-    theme.value = savedTheme;
-  } else {
-    theme.value = 'light';
-  }
-  updateThemeClass();
+  // Listen for Escape key to close modal
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && selectedBookForModal.value) {
+      closeBookModal();
+    }
+  });
 
-  // Load configuration from URL search query parameters if present
+  // Sync URL search query parameters if present
   const params = new URLSearchParams(window.location.search);
-  const qParam = params.get('qty') || params.get('q');
-  if (qParam) {
-    const parsedQty = parseInt(qParam, 10);
-    if (!isNaN(parsedQty) && parsedQty > 0) {
-      quantity.value = parsedQty;
+
+  // Parse 'sathiya' query param (with fallback to legacy keys)
+  if (params.has('sathiya')) {
+    const q1 = parseInt(params.get('sathiya'), 10);
+    if (!isNaN(q1) && q1 >= 0) {
+      quantities.value.mindfulness = q1;
+    }
+  } else if (params.has('q1') || params.has('qty1') || params.has('qty') || params.has('q') || params.has('mindfulness')) {
+    const q1 = parseInt(params.get('q1') || params.get('qty1') || params.get('qty') || params.get('q') || params.get('mindfulness'), 10);
+    if (!isNaN(q1) && q1 >= 0) {
+      quantities.value.mindfulness = q1;
+    }
+  }
+
+  // Parse 'pattana' query param (with fallback to legacy keys)
+  if (params.has('pattana')) {
+    const q2 = parseInt(params.get('pattana'), 10);
+    if (!isNaN(q2) && q2 >= 0) {
+      quantities.value['samantha-pattanaya'] = q2;
+    }
+  } else if (params.has('q2') || params.has('qty2') || params.has('samantha-pattanaya')) {
+    const q2 = parseInt(params.get('q2') || params.get('qty2') || params.get('samantha-pattanaya'), 10);
+    if (!isNaN(q2) && q2 >= 0) {
+      quantities.value['samantha-pattanaya'] = q2;
     }
   }
 
@@ -57,40 +98,44 @@ onMounted(() => {
   }
 });
 
-// Synchronize quantity and deliveryMethod back to the URL query parameters dynamically
-watch([quantity, deliveryMethod], () => {
+// Real-time synchronization back to URL query parameters
+watch([quantities, deliveryMethod], () => {
   const url = new URL(window.location.href);
-  url.searchParams.set('qty', quantity.value);
+
+  const sathiyaQty = Number(quantities.value.mindfulness) || 0;
+  const pattanaQty = Number(quantities.value['samantha-pattanaya']) || 0;
+
+  // Set if > 0, omit if 0
+  if (sathiyaQty > 0) {
+    url.searchParams.set('sathiya', sathiyaQty);
+  } else {
+    url.searchParams.delete('sathiya');
+  }
+
+  if (pattanaQty > 0) {
+    url.searchParams.set('pattana', pattanaQty);
+  } else {
+    url.searchParams.delete('pattana');
+  }
+
+  // Clean up any legacy keys
+  ['q1', 'q2', 'qty1', 'qty2', 'qty', 'q', 'mindfulness', 'samantha-pattanaya'].forEach(k => {
+    url.searchParams.delete(k);
+  });
+
   url.searchParams.set('method', deliveryMethod.value);
   window.history.replaceState({}, '', url.pathname + url.search + url.hash);
-});
-
-function updateThemeClass() {
-  if (theme.value === 'dark') {
-    document.documentElement.classList.add('dark');
-    document.documentElement.classList.remove('light');
-  } else {
-    document.documentElement.classList.add('light');
-    document.documentElement.classList.remove('dark');
-  }
-  localStorage.setItem('theme', theme.value);
-}
-
-function toggleTheme() {
-  theme.value = theme.value === 'light' ? 'dark' : 'light';
-  updateThemeClass();
-}
-
-function toggleLang(newLang) {
-  lang.value = newLang;
-  document.documentElement.setAttribute('lang', newLang);
-}
+}, { deep: true });
 
 // -------------------------------------------------------------
 // Validation Logic
 // -------------------------------------------------------------
 // Regex for checking Sinhala Unicode characters: [\u0D80-\u0DFF]
 const hasSinhalaChars = (str) => /[\u0D80-\u0DFF]/.test(str);
+
+const totalBooksCount = computed(() => {
+  return CONFIG.books.reduce((sum, b) => sum + (Number(quantities.value[b.id]) || 0), 0);
+});
 
 const isNameInvalid = computed(() => {
   if (!name.value.trim()) return 'required';
@@ -99,7 +144,7 @@ const isNameInvalid = computed(() => {
 });
 
 const isAddressInvalid = computed(() => {
-  if (deliveryMethod.value === 'pickup') return ''; // Address not needed for self pickup
+  if (deliveryMethod.value === 'pickup') return '';
   if (!address.value.trim()) return 'required';
   if (hasSinhalaChars(address.value)) return 'english_only';
   return '';
@@ -107,31 +152,58 @@ const isAddressInvalid = computed(() => {
 
 const isPhoneInvalid = computed(() => {
   if (!phone.value.trim()) return 'required';
-  // Check if phone has at least 9-10 digits (common Sri Lankan phone numbers)
   const cleanPhone = phone.value.replace(/\D/g, '');
   if (cleanPhone.length < 9) return 'invalid';
   return '';
 });
 
 const isFormInvalid = computed(() => {
-  return !!isNameInvalid.value || !!isAddressInvalid.value || !!isPhoneInvalid.value;
+  return totalBooksCount.value <= 0 || !!isNameInvalid.value || !!isAddressInvalid.value || !!isPhoneInvalid.value;
 });
 
 // -------------------------------------------------------------
 // Calculation Logic
 // -------------------------------------------------------------
-const bookCost = computed(() => quantity.value * CONFIG.book.costLkr);
+const bookCostBreakdown = computed(() => {
+  return CONFIG.books
+    .filter(b => (Number(quantities.value[b.id]) || 0) > 0)
+    .map(b => {
+      const q = Number(quantities.value[b.id]) || 0;
+      return {
+        id: b.id,
+        title: b.titleSinhala,
+        qty: q,
+        price: b.costLkr,
+        formula: `(${q} × රු. ${b.costLkr})`,
+        cost: q * b.costLkr
+      };
+    });
+});
+
+const totalBookCost = computed(() => {
+  return bookCostBreakdown.value.reduce((sum, item) => sum + item.cost, 0);
+});
+
+const bookCostFormulaText = computed(() => {
+  if (bookCostBreakdown.value.length === 0) {
+    return 'රු. 0';
+  }
+  return bookCostBreakdown.value.map(item => item.formula).join(' + ');
+});
 
 const parcelWeightKg = computed(() => {
-  return (quantity.value * CONFIG.book.weightGrams) / 1000;
+  const totalGrams = CONFIG.books.reduce((sum, b) => {
+    const q = Number(quantities.value[b.id]) || 0;
+    return sum + q * b.weightGrams;
+  }, 0);
+  return totalGrams / 1000;
 });
 
 const deliveryCost = computed(() => {
-  if (deliveryMethod.value === 'pickup' || deliveryMethod.value === 'pickmeFlash') {
+  if (deliveryMethod.value === 'pickup' || deliveryMethod.value === 'pickmeFlash' || totalBooksCount.value === 0) {
     return 0;
   }
   
-  // Courier calculations
   const weight = parcelWeightKg.value;
   const chargeableWeight = Math.ceil(weight);
   const base = CONFIG.delivery.courier.baseChargeLkr;
@@ -142,20 +214,20 @@ const deliveryCost = computed(() => {
   // Add packing cost directly to courier delivery cost
   const thresh = CONFIG.delivery.courier.packingCostThreshold;
   const perBatch = CONFIG.delivery.courier.packingCostPerBatch;
-  if (quantity.value > thresh) {
-    cost += Math.ceil(quantity.value / 50) * perBatch;
+  if (totalBooksCount.value > thresh) {
+    cost += Math.ceil(totalBooksCount.value / 50) * perBatch;
   }
   
   return cost;
 });
 
 const rawTotalCost = computed(() => {
-  return bookCost.value + deliveryCost.value;
+  return totalBookCost.value + deliveryCost.value;
 });
 
 const totalCost = computed(() => {
-  // If more than 50 books, round up the grand total to the nearest 100
-  if (quantity.value > 50 && deliveryMethod.value === 'courier') {
+  // If more than 50 books, round up the grand total to nearest 100
+  if (totalBooksCount.value > 50 && deliveryMethod.value === 'courier') {
     return Math.ceil(rawTotalCost.value / 100) * 100;
   }
   return rawTotalCost.value;
@@ -177,51 +249,42 @@ const copyText = (text, field) => {
 // Submission Handlers (WhatsApp & Email)
 // -------------------------------------------------------------
 const formattedOrderMessage = computed(() => {
-  const deliveryMethodNames = {
-    pickup: lang.value === 'si' ? 'ස්වයං එකතු කර ගැනීම (Self-Pickup)' : 'Self-Pickup',
-    courier: lang.value === 'si' ? 'Citypak කුරියර් (Courier)' : 'Citypak Courier',
-    pickmeFlash: lang.value === 'si' ? 'PickMe Flash සේවාව' : 'PickMe Flash',
+  const deliveryNames = {
+    pickup: 'පැමිණ ලබා ගැනීම (Homagama)',
+    courier: 'කූරියර් Courier',
+    pickmeFlash: 'PickMe Flash',
   };
 
-  const deliveryStr = deliveryMethodNames[deliveryMethod.value];
+  const deliveryStr = deliveryNames[deliveryMethod.value] || deliveryMethod.value;
   
-  let msg = '';
-  if (lang.value === 'si') {
-    msg += `නව පොත් ඇණවුමක් (New Book Order)\n`;
-    msg += `--------------------------------------\n`;
-    msg += `පොතේ නම: ${CONFIG.book.titleSinhala}\n`;
-    msg += `පොත් ගණන: ${quantity.value}\n`;
-    msg += `ලබාගන්නා ආකාරය: ${deliveryStr}\n`;
-    msg += `ගෙවන ලද මුළු මුදල: රු. ${totalCost.value}\n\n`;
-    
-    msg += `ලබන්නාගේ තොරතුරු (Recipient Details):\n`;
-    msg += `නම (Name): ${name.value.trim()}\n`;
-    if (deliveryMethod.value !== 'pickup') {
-      msg += `ලිපිනය (Address): ${address.value.trim()}\n`;
+  let msg = `Book Order\n`;
+  CONFIG.books.forEach(b => {
+    const q = Number(quantities.value[b.id]) || 0;
+    if (q > 0) {
+      msg += `• ${b.titleSinhala}: ${q}\n`;
     }
-    msg += `දුරකථනය (Phone): ${phone.value.trim()}\n`;
-    
-    if (deliveryMethod.value !== 'pickup') {
-      msg += `\n(බැංකු තැන්පතු රිසිට් පතේ ඡායාරූපය/Screen shot එක මෙයට අමුණා එවන්න)`;
-    }
-  } else {
-    msg += `New Book Order\n`;
-    msg += `--------------------------------------\n`;
-    msg += `Book Title: ${CONFIG.book.titleEnglish}\n`;
-    msg += `Quantity: ${quantity.value}\n`;
-    msg += `Delivery Method: ${deliveryStr}\n`;
-    msg += `Total Paid Amount: Rs. ${totalCost.value}\n\n`;
-    
-    msg += `Recipient Details:\n`;
-    msg += `Name: ${name.value.trim()}\n`;
-    if (deliveryMethod.value !== 'pickup') {
-      msg += `Address: ${address.value.trim()}\n`;
-    }
-    msg += `Phone: ${phone.value.trim()}\n`;
-    
-    if (deliveryMethod.value !== 'pickup') {
-      msg += `\n(Please attach a screenshot of your bank transfer receipt)`;
-    }
+  });
+  msg += `ක්‍රමය: ${deliveryStr}\n`;
+  msg += `ගෙවන ලද මුළු මුදල: රු. ${totalCost.value}\n\n`;
+  
+  msg += `Name: ${name.value.trim()}\n`;
+  if (deliveryMethod.value !== 'pickup') {
+    msg += `Address: ${address.value.trim()}\n`;
+  }
+  msg += `Phone: ${phone.value.trim()}\n`;
+
+  // Reference: 50 Sathiya + 13 Pattana books for {name}
+  const refParts = [];
+  const qSathiya = Number(quantities.value.mindfulness) || 0;
+  const qPattana = Number(quantities.value['samantha-pattanaya']) || 0;
+  if (qSathiya > 0) refParts.push(`${qSathiya} Sathiya`);
+  if (qPattana > 0) refParts.push(`${qPattana} Pattana`);
+  const bookRefStr = (refParts.length > 0 ? refParts.join(' + ') : 'Book') + ' books';
+  const refLine = name.value.trim() ? `${bookRefStr} for ${name.value.trim()}` : bookRefStr;
+  msg += `Reference: ${refLine}\n`;
+  
+  if (deliveryMethod.value !== 'pickup') {
+    msg += `\n(බැංකු තැන්පතු Slip / Screenshot එක මෙයට අමුණා එවන්න)`;
   }
   return msg;
 });
@@ -231,8 +294,13 @@ function submitViaWhatsApp() {
   addressTouched.value = true;
   phoneTouched.value = true;
   
+  if (totalBooksCount.value <= 0) {
+    alert('කරුණාකර අවම වශයෙන් එක් පොතක්වත් තෝරන්න.');
+    return;
+  }
+
   if (isFormInvalid.value) {
-    alert(translations[lang.value].validationError);
+    alert('කරුණාකර පෝරමයේ ඇති වැරදි නිවැරදි කර නැවත උත්සාහ කරන්න.');
     return;
   }
   
@@ -246,8 +314,13 @@ function submitViaEmail() {
   addressTouched.value = true;
   phoneTouched.value = true;
   
+  if (totalBooksCount.value <= 0) {
+    alert('කරුණාකර අවම වශයෙන් එක් පොතක්වත් තෝරන්න.');
+    return;
+  }
+
   if (isFormInvalid.value) {
-    alert(translations[lang.value].validationError);
+    alert('කරුණාකර පෝරමයේ ඇති වැරදි නිවැරදි කර නැවත උත්සාහ කරන්න.');
     return;
   }
   
@@ -256,691 +329,485 @@ function submitViaEmail() {
   const mailtoUrl = `mailto:${CONFIG.contact.email}?subject=${subject}&body=${body}`;
   window.open(mailtoUrl, '_blank');
 }
-
-// -------------------------------------------------------------
-// Translation Dictionary
-// -------------------------------------------------------------
-const translations = {
-  si: {
-    title: "Mindfulness සරලව දකිමු සතිය",
-    subtitle: "පොත ඇණවුම් කිරීම් සහ තොරතුරු සේවාව",
-    bookDetails: "පොත පිළිබඳ තොරතුරු",
-    size: "ප්‍රමාණය",
-    pages: "පිටු ගණන",
-    weight: "බර (තනි පොතක)",
-    availability: "තොග පවතින බව",
-    availableNow: "දැනට තොග ඇත (ඇණවුම් කළ හැක)",
-    outOfStock: "දැනට තොග අවසන්",
-    printingCost: "මුද්‍රණ වියදම (පොතකට)",
-    lkr: "රු.",
-    grams: "ග්‍රෑම්",
-    orderTitle: "පොත් ඇණවුම් කිරීමේ පෝරමය",
-    quantity: "අවශ්‍ය පොත් ගණන කීයද?",
-    deliveryMethod: "ලබාගැනීමේ ක්‍රමය",
-    pickup: "පැමිණ ලබා ගැනීම (හෝමාගම)",
-    courier: "Citypak කුරියර් (නිවසටම)",
-    pickmeFlash: "PickMe Flash (කි.මී. 15 සීමාව)",
-    calculations: "මිල සහ බර ගණනය කිරීම",
-    pricePerBook: "පොත් සඳහා මුදල",
-    deliveryFee: "කුරියර් ගාස්තුව",
-    packingFee: "ඇසුරුම් සහ වටකිරීම් ගාස්තුව",
-    parcelWeight: "පාර්සලයේ බර",
-    totalAmount: "ගෙවිය යුතු මුළු මුදල",
-    payToDriver: "පැමිණෙන රියදුරුට ගෙවිය යුතුය",
-    free: "රු. 0",
-    detailsTitle: "ලබන්නාගේ විස්තර",
-    detailsPickupTitle: "ඇණවුම්කරුගේ විස්තර",
-    fullName: "සම්පූර්ණ නම (Full Name)",
-    fullNamePlaceholder: "E.g. J.R. Perera (ඉංග්‍රීසි අකුරින් පමණි)",
-    address: "බෙදාහැරිය යුතු ලිපිනය (Address)",
-    addressPlaceholder: "E.g. No 12, Temple Road, Homagama (ඉංග්‍රීසි අකුරින් පමණි)",
-    phone: "දුරකථන අංකය (Phone Number)",
-    phonePlaceholder: "E.g. 0712345678",
-    englishOnlyWarning: "⚠️ නම සහ ලිපිනය ඉංග්‍රීසි අකුරින් (English) පමණක් ඇතුළත් කරන්න. සිංහල අකුරු භාවිතා කළ නොහැක.",
-    requiredField: "මෙය අත්‍යවශ්‍ය ක්‍ෂේත්‍රයකි.",
-    invalidPhone: "වලංගු දුරකථන අංකයක් ඇතුළත් කරන්න (උදා: 07XXXXXXXX).",
-    pickupDetails: "පොත් ලබා ගැනීමට පැමිණීමට පෙර අපව දැනුවත් කිරීම අවශ්‍ය නොවේ. ඔබ පැමිණෙන විට තොග පවතින ආකාරය අනුව පොත් ලබාගත හැක. (කලින් ගෙවීමකින් තොරව පොත් වෙන්කර තබාගත නොහැකි බව කරුණාවෙන් සලකන්න.) මුදල් ගෙවීම පොත් ලබාගන්නා අවස්ථාවේදී සිදු කළ හැක.",
-    pickupLocation: "පොත් ලබාගත හැකි ස්ථානය (Path Nirvana Homagama)",
-    viewOnGoogleMaps: "Google සිතියම (Google Maps) ඔස්සේ බලන්න",
-    pickmeDetails: "හෝමාගම අපගේ ස්ථානයේ සිට කිලෝමීටර් 15 ක සීමාව ඇතුළත පමණක් ලබාගත හැක. පොතේ මුද්‍රණ වියදම පමණක් අපගේ බැංකු ගිණුමට තැන්පත් කළ යුතු අතර බෙදාහැරීමේ ගාස්තුව පැමිණෙන රියදුරුට ඍජුවම ගෙවිය යුතුය.",
-    courierDetails: "Citypak කුරියර් සේවාව මඟින් දිවයින පුරා බෙදාහරිනු ලැබේ. (කරුණාවෙන් සලකන්න: COD / ලැබුණු පසු මුදල් ගෙවීමේ සේවාව නොමැති අතර, පොත් එවීම සිදු කරනුයේ කලින් බැංකු තැන්පතුවක් සිදු කිරීමෙන් පසුව පමණි.) බෙදාහැරීම සඳහා ප්‍රදේශය අනුව දින 3-5ත් අතර කාලයක් ගත විය හැකි අතර, පාර්සලය එවීමෙන් පසු ලුහුබැඳීමේ අංකයක් (Tracking Number) ඔබට ලබා දෙනු ඇත.",
-    bankDetailsTitle: "බැංකු තැන්පතු උපදෙස්",
-    bankDetailsIntro: "පොත් එවීම සිදු කරනුයේ බැංකු තැන්පතුව සිදු කළ පසුව පමණි. (භාණ්ඩ ලැබුණු පසු මුදල් ගෙවීමේ - COD සේවාව ලබාගත නොහැක.) කරුණාකර පහත දැක්වෙන අපගේ බැංකු ගිණුමට අදාළ මුළු මුදල තැන්පත් කරන්න:",
-    bankName: "බැංකුව",
-    branch: "ශාඛාව",
-    accountNumber: "ගිණුම් අංකය",
-    accountName: "ගිණුම් හිමියාගේ නම",
-    copied: "පිටපත් කෙරුණා!",
-    copy: "පිටපත් කරන්න",
-    notificationTitle: "ඇණවුම දැනුම් දීම සහ තහවුරු කිරීම",
-    notificationIntro: "බැංකු තැන්පතුව සිදු කිරීමෙන් පසු, පහත ක්‍රම දෙකෙන් එකක් භාවිතා කර තැන්පතු පත්‍රිකාව (Slip) සහ ඉහත විස්තර අප වෙත එවන්න:",
-    whatsappBtn: "WhatsApp හරහා ඇණවුම් කරන්න",
-    emailBtn: "ඊමේල් (Email) හරහා ඇණවුම් කරන්න",
-    validationError: "කරුණාකර පෝරමයේ ඇති වැරදි නිවැරදි කර නැවත උත්සාහ කරන්න.",
-    language: "භාෂාව",
-    theme: "මාදිලිය",
-    themeLight: "දිවා මාදිලිය",
-    themeDark: "රාත්‍රී මාදිලිය",
-    addressRequirementSinhala: "⚠️ කුරියර් ලේබල මුද්‍රණය සඳහා නම සහ ලිපිනය ඉංග්‍රීසි අකුරින් (Latin/English characters) පමණක් ඇතුළත් කළ යුතුය.",
-    bookIntro: "ධර්ම දානයක් ලෙස මෙම පොත එහි සැබෑ මුද්‍රණ පිරිවැයටත් වඩා අඩු මුදලකට ඔබට ලබා දීමට කටයුතු සලසා ඇත.",
-    pdfLinkText: "නොමිලේ PDF බාගත කරන්න"
-  },
-  en: {
-    title: "Mindfulness සරලව දකිමු සතිය",
-    subtitle: "Book Order & Information Service",
-    bookDetails: "Book Information",
-    size: "Physical Size",
-    pages: "Pages",
-    weight: "Weight (Per Book)",
-    availability: "Availability Status",
-    availableNow: "Available Now (In Stock)",
-    outOfStock: "Temporarily Out of Stock",
-    printingCost: "Printing Cost (Per Book)",
-    lkr: "Rs.",
-    grams: "g",
-    orderTitle: "Book Order Form",
-    quantity: "Number of Books Required",
-    deliveryMethod: "Delivery Method",
-    pickup: "Self-Pickup (Homagama)",
-    courier: "Citypak Courier (To Doorstep)",
-    pickmeFlash: "PickMe Flash (15km Radius)",
-    calculations: "Price & Weight Calculation",
-    pricePerBook: "Book Cost",
-    deliveryFee: "Courier Fee",
-    packingFee: "Packing & Handling Fee",
-    parcelWeight: "Parcel Weight",
-    totalAmount: "Total Payable Amount",
-    payToDriver: "Pay to Delivery Driver",
-    free: "Rs. 0",
-    detailsTitle: "Recipient Details",
-    detailsPickupTitle: "Customer Details",
-    fullName: "Full Name (English Letters)",
-    fullNamePlaceholder: "E.g. J.R. Perera (English letters only)",
-    address: "Delivery Address (English Letters)",
-    addressPlaceholder: "E.g. No 12, Temple Road, Homagama (English letters only)",
-    phone: "Phone Number",
-    phonePlaceholder: "E.g. 0712345678",
-    englishOnlyWarning: "⚠️ Name and Address must be in English letters only. Sinhala letters are not allowed.",
-    requiredField: "This field is required.",
-    invalidPhone: "Please enter a valid phone number (e.g. 07XXXXXXXX).",
-    pickupDetails: "You do not need to notify us in advance. Books can be collected based on stock availability when you arrive. (Please note that books cannot be reserved without prior payment.) Payment can be made at collection.",
-    pickupLocation: "Pickup Location (Path Nirvana Homagama)",
-    viewOnGoogleMaps: "View on Google Maps",
-    pickmeDetails: "Only available within a 15km radius of Homagama. You must deposit only the book printing cost to our bank account. The delivery fare must be paid directly to the PickMe Flash driver upon delivery.",
-    courierDetails: "Delivered via Citypak courier service islandwide. (Please note: COD / Cash on Delivery is not available. Books will only be dispatched after prior bank transfer is completed.) Please note it take 3-5 days for delivery depending on the location and we will give you a tracking number.",
-    bankDetailsTitle: "Bank Deposit Instructions",
-    bankDetailsIntro: "Books will only be dispatched after prior bank transfer. (Cash on Delivery - COD is not available.) Please deposit the total amount to the following bank account:",
-    bankName: "Bank",
-    branch: "Branch",
-    accountNumber: "Account Number",
-    accountName: "Account Holder Name",
-    copied: "Copied!",
-    copy: "Copy",
-    notificationTitle: "Confirm Order & Notify Us",
-    notificationIntro: "After making the bank transfer, send us a photo of the slip along with the above details via WhatsApp or Email:",
-    whatsappBtn: "Order via WhatsApp",
-    emailBtn: "Order via Email",
-    validationError: "Please correct the errors in the form before proceeding.",
-    language: "Language",
-    theme: "Theme",
-    themeLight: "Light Mode",
-    themeDark: "Dark Mode",
-    addressRequirementSinhala: "⚠️ For courier printing purposes, Name and Address must be written in English characters only.",
-    bookIntro: "As a Dhamma donation, this book is provided at a cost lower than the actual printing cost.",
-    pdfLinkText: "Download Free PDF Version"
-  }
-};
 </script>
 
 <template>
-  <div class="min-h-screen bg-bg-primary text-text-text transition-colors duration-300">
-    <!-- Header -->
-    <header class="sticky top-0 z-50 bg-bg-secondary/80 backdrop-blur-md border-b border-border-primary shadow-xs transition-colors duration-300">
-      <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-        <div class="flex items-center space-x-2">
-          <!-- Logo Icon -->
-          <div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-white font-bold text-lg">
-            🧘
+  <div class="min-h-screen bg-bg-primary text-text-text px-3 py-3 sm:py-6">
+    <main class="max-w-xl mx-auto space-y-3 sm:space-y-4">
+
+      <!-- Compact Page Header -->
+      <section class="text-center py-1">
+        <h1 class="text-base sm:text-lg font-bold text-text-primary flex items-center justify-center gap-1.5">
+          <span>📖</span>
+          <span>Path Nirvana දහම් පොත්</span>
+        </h1>
+      </section>
+
+      <!-- Step 1: Book Selection & Delivery Selection -->
+      <section class="bg-bg-secondary rounded-xl border border-border-primary p-3 sm:p-4 shadow-xs space-y-3">
+        <div class="flex items-center justify-between">
+          <h2 class="text-sm font-bold text-text-primary">1. පොත් කීයක් අවශ්‍යද?</h2>
+          <span class="text-[11px] text-text-secondary font-medium">
+            එකතුව: {{ totalBooksCount }} {{ totalBooksCount === 1 ? 'පොතයි' : 'පොත්' }}
+          </span>
+        </div>
+
+        <!-- Book Selection Rows -->
+        <div class="space-y-2">
+          <div 
+            v-for="book in CONFIG.books" 
+            :key="book.id"
+            class="p-2.5 sm:p-3 rounded-xl border border-border-primary bg-bg-primary/40 hover:bg-bg-primary/60 transition-all flex items-center gap-2.5 sm:gap-3"
+          >
+            <!-- Thumbnail (Clickable to open dialog) -->
+            <img 
+              :src="book.coverImage" 
+              :alt="book.titleSinhala"
+              class="w-11 sm:w-12 h-15 sm:h-16 object-cover rounded shadow-xs border border-border-primary shrink-0 cursor-pointer hover:opacity-90 active:scale-95 transition-all"
+              @click="openBookModal(book)"
+              title="විස්තර බලන්න"
+            />
+
+            <!-- Book Info & Details Button -->
+            <div class="min-w-0 flex-1">
+              <h3 class="text-xs sm:text-sm font-bold text-text-primary leading-tight line-clamp-1">
+                {{ book.titleSinhala }}
+              </h3>
+              <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-text-secondary mt-0.5">
+                <span class="font-bold text-primary">රු. {{ book.costLkr }}</span>
+                <span>•</span>
+                <span>{{ book.weightGrams }}g</span>
+                <span>•</span>
+                <span>පිටු {{ book.pages }}</span>
+                <span v-if="book.inStock === false" class="text-[10px] text-amber-800 bg-amber-100/90 px-1.5 py-0.2 rounded font-medium">
+                  තවමත් නැත
+                </span>
+              </div>
+
+              <!-- Button to open popup modal dialog -->
+              <button 
+                type="button"
+                @click="openBookModal(book)"
+                class="text-[11px] text-primary hover:underline font-semibold inline-flex items-center gap-1 mt-1 cursor-pointer"
+              >
+                <span>ℹ️ විස්තර බලන්න (Info)</span>
+              </button>
+            </div>
+
+            <!-- Stepper Controls -->
+            <div class="flex items-center space-x-1.5 shrink-0">
+              <button 
+                type="button"
+                @click="decrementQty(book.id)"
+                class="w-8 h-8 rounded-lg border border-border-primary bg-bg-secondary hover:bg-bg-tertiary text-text-primary font-bold text-base flex items-center justify-center active:scale-95 transition-all"
+                aria-label="Decrease quantity"
+              >
+                −
+              </button>
+              <input 
+                type="number"
+                v-model.number="quantities[book.id]"
+                min="0"
+                class="w-12 sm:w-14 h-8 rounded-lg border border-border-primary text-center font-bold text-xs sm:text-sm text-text-primary bg-bg-secondary focus:outline-hidden focus:border-primary"
+              />
+              <button 
+                type="button"
+                @click="incrementQty(book.id)"
+                class="w-8 h-8 rounded-lg border border-border-primary bg-bg-secondary hover:bg-bg-tertiary text-text-primary font-bold text-base flex items-center justify-center active:scale-95 transition-all"
+                aria-label="Increase quantity"
+              >
+                +
+              </button>
+            </div>
           </div>
+        </div>
+
+        <!-- Warning if no books selected -->
+        <p v-if="totalBooksCount === 0" class="text-xs text-amber-700 bg-amber-50 p-2 rounded-lg border border-amber-200">
+          ⚠️ කරුණාකර අවම වශයෙන් එක් පොතකින් හෝ අවශ්‍ය ප්‍රමාණය ඇතුළත් කරන්න.
+        </p>
+
+        <!-- Delivery Method Radios -->
+        <div class="space-y-1.5 pt-1">
+          <span class="block text-xs font-semibold text-text-secondary">ලබාගැනීමේ ක්‍රමය තෝරන්න:</span>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <!-- Courier -->
+            <label 
+              :class="['p-2.5 rounded-lg border flex items-center justify-center text-center cursor-pointer transition-all', 
+                deliveryMethod === 'courier' ? 'border-primary bg-primary-light/50 ring-1 ring-primary' : 'border-border-primary hover:bg-bg-tertiary/40']"
+            >
+              <input type="radio" v-model="deliveryMethod" value="courier" class="sr-only" />
+              <span class="text-xs font-bold text-text-primary">📦 කූරියර් Courier</span>
+            </label>
+
+            <!-- PickMe Flash -->
+            <label 
+              :class="['p-2.5 rounded-lg border flex items-center justify-center text-center cursor-pointer transition-all', 
+                deliveryMethod === 'pickmeFlash' ? 'border-primary bg-primary-light/50 ring-1 ring-primary' : 'border-border-primary hover:bg-bg-tertiary/40']"
+            >
+              <input type="radio" v-model="deliveryMethod" value="pickmeFlash" class="sr-only" />
+              <span class="text-xs font-bold text-text-primary">⚡ PickMe Flash</span>
+            </label>
+
+            <!-- Pickup -->
+            <label 
+              :class="['p-2.5 rounded-lg border flex items-center justify-center text-center cursor-pointer transition-all', 
+                deliveryMethod === 'pickup' ? 'border-primary bg-primary-light/50 ring-1 ring-primary' : 'border-border-primary hover:bg-bg-tertiary/40']"
+            >
+              <input type="radio" v-model="deliveryMethod" value="pickup" class="sr-only" />
+              <span class="text-xs font-bold text-text-primary">🚶 පැමිණ ලබා ගැනීම</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Price Breakdown Box -->
+        <div class="bg-bg-primary/70 p-2.5 rounded-lg border border-border-primary space-y-1 text-xs">
+          <div class="flex justify-between text-text-secondary">
+            <span>
+              පොත් සඳහා 
+              <span v-if="bookCostBreakdown.length > 0" class="text-text-primary font-medium">
+                {{ bookCostFormulaText }}
+              </span>:
+            </span>
+            <span class="text-text-primary font-medium">රු. {{ totalBookCost }}</span>
+          </div>
+          <div class="flex justify-between text-text-secondary">
+            <span>Courier ගාස්තුව:</span>
+            <span class="text-text-primary font-medium">
+              <span v-if="deliveryMethod === 'courier'">රු. {{ deliveryCost }}</span>
+              <span v-else-if="deliveryMethod === 'pickmeFlash'" class="text-amber-700 font-semibold">රියදුරුට ගෙවන්න</span>
+              <span v-else class="text-emerald-700 font-semibold">රු. 0</span>
+            </span>
+          </div>
+          <div v-if="deliveryMethod === 'courier'" class="flex justify-between text-text-secondary text-[11px]">
+            <span>මුළු බර:</span>
+            <span>{{ parcelWeightKg.toFixed(2) }} kg</span>
+          </div>
+          <div class="flex justify-between items-center text-text-primary pt-1.5 border-t border-border-primary font-bold text-sm">
+            <span>ගෙවිය යුතු මුළු මුදල:</span>
+            <span class="text-primary text-base">රු. {{ totalCost }}</span>
+          </div>
+        </div>
+
+        <!-- Delivery Context Note -->
+        <div class="text-xs text-text-secondary leading-relaxed bg-primary-light/40 p-2.5 rounded-lg border border-primary/20">
+          <template v-if="deliveryMethod === 'courier'">
+            📦 දිවයින පුරා දින 3-5 අතර ලැබේ (Tracking Number එකක් එවනු ලැබේ). <span class="font-semibold text-text-primary">COD නොමැත</span> - කලින් මුදල් තැන්පත් කළ යුතුය.
+          </template>
+          <template v-else-if="deliveryMethod === 'pickmeFlash'">
+            ⚡ හෝමාගම සිට {{ CONFIG.delivery.pickmeFlash.radiusLimitKm }}km සීමාව තුළ පමණි. පොත් මුදල බැංකුවට තැන්පත් කර, Delivery ගාස්තුව පැමිණෙන රියදුරුට ඍජුවම ගෙවන්න.
+          </template>
+          <template v-else>
+            🚶 පැමිණ මුදල් ගෙවා ලබාගත හැක. (කලින් ගෙවීමකින් තොරව පොත් වෙන්කර තැබිය නොහැක).
+            <div class="mt-1 pt-1 border-t border-primary/20 flex flex-col gap-1">
+              <a 
+                :href="CONFIG.delivery.pickup.mapsUrl" 
+                target="_blank" 
+                class="text-primary hover:underline font-semibold inline-flex items-center gap-1"
+              >
+                📍 Path Nirvana Homagama (Google Maps) ↗
+              </a>
+              <span class="text-[11px] text-text-secondary">
+                {{ CONFIG.delivery.pickup.directionsSinhala }}
+              </span>
+            </div>
+          </template>
+        </div>
+      </section>
+
+      <!-- Step 2: Recipient Details -->
+      <section class="bg-bg-secondary rounded-xl border border-border-primary p-3 sm:p-4 shadow-xs space-y-2.5">
+        <div class="flex items-center justify-between">
+          <h2 class="text-sm font-bold text-text-primary">
+            {{ deliveryMethod === 'pickup' ? '2. ඔබගේ විස්තර' : '2. ලබන්නාගේ විස්තර' }}
+          </h2>
+          <span v-if="deliveryMethod !== 'pickup'" class="text-[11px] text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+            Courier සඳහා Name & Address ඉංග්‍රීසියෙන්
+          </span>
+        </div>
+
+        <div class="space-y-2">
+          <!-- Name -->
           <div>
-            <h1 class="text-lg font-bold text-text-primary leading-tight font-display">
-              {{ translations[lang].title }}
-            </h1>
-            <p class="text-xs text-text-secondary">
-              {{ translations[lang].subtitle }}
+            <label for="nameInput" class="block text-xs font-semibold text-text-secondary mb-0.5">
+              Name (English) <span class="text-red-500">*</span>
+            </label>
+            <input 
+              id="nameInput"
+              type="text" 
+              v-model="name"
+              @blur="nameTouched = true"
+              placeholder="e.g. Nimal Perera"
+              class="w-full h-10 px-3 rounded-lg border border-border-primary text-text-primary bg-bg-secondary focus:outline-hidden focus:border-primary text-sm"
+              autocomplete="name"
+            />
+            <p v-if="nameTouched && isNameInvalid === 'required'" class="text-[11px] text-red-500 mt-0.5">
+              නම ඇතුළත් කරන්න.
+            </p>
+            <p v-if="nameTouched && isNameInvalid === 'english_only'" class="text-[11px] text-red-500 mt-0.5 font-semibold">
+              ⚠️ English අකුරින් පමණක් ඇතුළත් කරන්න (සිංහල අකුරු භාවිතා කළ නොහැක).
+            </p>
+          </div>
+
+          <!-- Address (only if not pickup) -->
+          <div v-if="deliveryMethod !== 'pickup'">
+            <label for="addressInput" class="block text-xs font-semibold text-text-secondary mb-0.5">
+              Address (English) <span class="text-red-500">*</span>
+            </label>
+            <textarea 
+              id="addressInput"
+              v-model="address"
+              @blur="addressTouched = true"
+              placeholder="e.g. No 12, Temple Road, Homagama"
+              rows="2"
+              class="w-full p-2.5 rounded-lg border border-border-primary text-text-primary bg-bg-secondary focus:outline-hidden focus:border-primary text-sm"
+              autocomplete="street-address"
+            ></textarea>
+            <p v-if="addressTouched && isAddressInvalid === 'required'" class="text-[11px] text-red-500 mt-0.5">
+              ලිපිනය ඇතුළත් කරන්න.
+            </p>
+            <p v-if="addressTouched && isAddressInvalid === 'english_only'" class="text-[11px] text-red-500 mt-0.5 font-semibold">
+              ⚠️ English අකුරින් පමණක් ඇතුළත් කරන්න (සිංහල අකුරු භාවිතා කළ නොහැක).
+            </p>
+          </div>
+
+          <!-- Phone -->
+          <div>
+            <label for="phoneInput" class="block text-xs font-semibold text-text-secondary mb-0.5">
+              Phone Number <span class="text-red-500">*</span>
+            </label>
+            <input 
+              id="phoneInput"
+              type="tel" 
+              v-model="phone"
+              @blur="phoneTouched = true"
+              placeholder="07XXXXXXXX"
+              class="w-full h-10 px-3 rounded-lg border border-border-primary text-text-primary bg-bg-secondary focus:outline-hidden focus:border-primary text-sm"
+              autocomplete="tel"
+            />
+            <p v-if="phoneTouched && isPhoneInvalid === 'required'" class="text-[11px] text-red-500 mt-0.5">
+              දුරකථන අංකය ඇතුළත් කරන්න.
+            </p>
+            <p v-if="phoneTouched && isPhoneInvalid === 'invalid'" class="text-[11px] text-red-500 mt-0.5">
+              වලංගු දුරකථන අංකයක් ඇතුළත් කරන්න.
             </p>
           </div>
         </div>
-        
-        <!-- Controls (Theme & Language) -->
-        <div class="flex items-center space-x-3">
-          <!-- Language Switcher -->
-          <div class="bg-bg-primary p-0.5 rounded-lg border border-border-primary flex text-xs">
+      </section>
+
+      <!-- Step 3: Bank Transfer Instructions (hidden for pickup) -->
+      <section v-if="deliveryMethod !== 'pickup'" class="bg-bg-secondary rounded-xl border border-border-primary p-3 sm:p-4 shadow-xs space-y-2">
+        <div class="flex items-center justify-between">
+          <h2 class="text-sm font-bold text-text-primary">3. බැංකු තැන්පතු විස්තර</h2>
+          <span class="text-[11px] text-red-700 bg-red-50 px-2 py-0.5 rounded border border-red-200 font-semibold">
+            COD නොමැත
+          </span>
+        </div>
+        <p class="text-xs text-text-secondary">
+          පොත් එවනු ලබන්නේ බැංකු තැන්පතුව සිදු කළ පසු පමණි. කරුණාකර මුළු මුදල තැන්පත් කරන්න:
+        </p>
+
+        <div class="bg-bg-primary/80 rounded-lg border border-border-primary divide-y divide-border-primary text-xs">
+          <!-- Bank & Branch -->
+          <div class="p-2 flex items-center justify-between">
+            <div>
+              <span class="text-text-secondary text-[11px] block">බැංකුව</span>
+              <span class="text-text-primary font-bold">{{ CONFIG.payment.bankTransfer.bankName }}</span>
+            </div>
             <button 
-              @click="toggleLang('si')"
-              :class="['px-2.5 py-1 rounded-md transition-all duration-200', lang === 'si' ? 'bg-primary text-white font-bold shadow-xs' : 'text-text-secondary hover:text-text-primary']"
+              @click="copyText(CONFIG.payment.bankTransfer.bankName.split(' ')[0], 'bankName')"
+              class="px-2 py-1 rounded border border-border-primary bg-bg-secondary hover:bg-bg-tertiary text-text-secondary text-[11px] active:scale-95 transition-all"
             >
-              සිංහල
-            </button>
-            <button 
-              @click="toggleLang('en')"
-              :class="['px-2.5 py-1 rounded-md transition-all duration-200', lang === 'en' ? 'bg-primary text-white font-bold shadow-xs' : 'text-text-secondary hover:text-text-primary']"
-            >
-              English
+              {{ copiedStates.bankName ? 'පිටපත් කළා!' : 'Copy' }}
             </button>
           </div>
 
-          <!-- Theme Toggler -->
+          <!-- Account Number -->
+          <div class="p-2 flex items-center justify-between">
+            <div>
+              <span class="text-text-secondary text-[11px] block">ගිණුම් අංකය</span>
+              <span class="text-text-primary font-bold text-sm tracking-wider">{{ CONFIG.payment.bankTransfer.accountNumber }}</span>
+            </div>
+            <button 
+              @click="copyText(CONFIG.payment.bankTransfer.accountNumber, 'accountNumber')"
+              class="px-2 py-1 rounded border border-border-primary bg-bg-secondary hover:bg-bg-tertiary text-text-secondary text-[11px] active:scale-95 transition-all"
+            >
+              {{ copiedStates.accountNumber ? 'පිටපත් කළා!' : 'Copy' }}
+            </button>
+          </div>
+
+          <!-- Account Name -->
+          <div class="p-2 flex items-center justify-between">
+            <div>
+              <span class="text-text-secondary text-[11px] block">ගිණුම් හිමියා</span>
+              <span class="text-text-primary font-bold">{{ CONFIG.payment.bankTransfer.accountName }}</span>
+            </div>
+            <button 
+              @click="copyText(CONFIG.payment.bankTransfer.accountName, 'accountName')"
+              class="px-2 py-1 rounded border border-border-primary bg-bg-secondary hover:bg-bg-tertiary text-text-secondary text-[11px] active:scale-95 transition-all"
+            >
+              {{ copiedStates.accountName ? 'පිටපත් කළා!' : 'Copy' }}
+            </button>
+          </div>
+
+          <!-- Amount -->
+          <div class="p-2 bg-primary-light/50 flex items-center justify-between">
+            <div>
+              <span class="text-primary text-[11px] block font-semibold">තැන්පත් කළ යුතු මුදල</span>
+              <span class="text-text-primary font-bold text-sm">රු. {{ totalCost }}</span>
+            </div>
+            <button 
+              @click="copyText(totalCost.toString(), 'totalAmount')"
+              class="px-2 py-1 rounded border border-primary/30 bg-bg-secondary text-primary font-semibold text-[11px] hover:bg-primary-light active:scale-95 transition-all"
+            >
+              {{ copiedStates.totalAmount ? 'පිටපත් කළා!' : 'Copy' }}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Action & Submit -->
+      <section class="bg-bg-secondary rounded-xl border border-border-primary p-3 sm:p-4 shadow-xs space-y-2.5">
+        <p class="text-xs text-text-secondary text-center leading-relaxed">
+          <span v-if="deliveryMethod === 'pickup'">
+            පහත බොත්තම මඟින් ඔබගේ ඇණවුම අප වෙත එවන්න.
+          </span>
+          <span v-else>
+            බැංකු තැන්පතු පත්‍රිකාව (Slip / Screenshot) සමඟ පහත බොත්තම ඔබා විස්තර එවන්න:
+          </span>
+        </p>
+
+        <!-- Buttons -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <!-- WhatsApp Button -->
           <button 
-            @click="toggleTheme" 
-            class="p-2 rounded-lg border border-border-primary hover:bg-bg-primary text-text-secondary transition-colors"
-            :title="translations[lang].theme"
+            @click="submitViaWhatsApp"
+            :disabled="isFormInvalid && (nameTouched || addressTouched || phoneTouched)"
+            class="w-full h-11 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-xs disabled:opacity-50 disabled:cursor-not-allowed transform active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
-            <!-- Sun Icon (shown in dark mode) -->
-            <svg v-if="theme === 'dark'" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m12.728 12.728l.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z" />
+            <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24">
+              <path d="M12.012 2c-5.506 0-9.989 4.478-9.99 9.984a9.96 9.96 0 0 0 1.333 4.982L2 22l5.233-1.371a9.936 9.936 0 0 0 4.779 1.22h.005c5.505 0 9.99-4.477 9.99-9.985C22.007 6.478 17.518 2 12.012 2zm6.068 14.254c-.267.753-1.31 1.37-1.808 1.43-.464.056-.99.083-1.63-.122-.397-.127-.925-.333-1.583-.615-2.793-1.196-4.606-4.043-4.747-4.23-.14-.188-1.127-1.499-1.127-2.86 0-1.36.703-2.029.983-2.31.28-.28.615-.352.82-.352h.588c.19 0 .444-.072.693.528.257.618.882 2.148.958 2.302.076.155.127.336.025.539-.101.203-.152.33-.304.507-.152.178-.32.397-.457.533-.153.153-.312.32-.135.624.178.304.79 1.295 1.688 2.09.155.138.31.277.472.41 1.157 1.05 2.05 1.365 2.353 1.488.303.123.48.102.66-.102.179-.203.766-.889.97-1.194.203-.304.407-.254.686-.153.28.102 1.777.838 2.083.99.304.153.508.229.584.356.076.127.076.736-.19 1.49z"/>
             </svg>
-            <!-- Moon Icon (shown in light mode) -->
-            <svg v-else xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+            <span>WhatsApp හරහා ඇණවුම් කරන්න</span>
+          </button>
+
+          <!-- Email Button -->
+          <button 
+            @click="submitViaEmail"
+            :disabled="isFormInvalid && (nameTouched || addressTouched || phoneTouched)"
+            class="w-full h-11 px-4 rounded-lg bg-primary hover:bg-primary-hover text-white font-bold text-sm shadow-xs disabled:opacity-50 disabled:cursor-not-allowed transform active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
             </svg>
+            <span>Email හරහා ඇණවුම් කරන්න</span>
+          </button>
+        </div>
+
+        <div class="text-[11px] text-text-secondary text-center space-y-0.5 pt-1">
+          <p>WhatsApp: <span class="font-bold text-text-primary">{{ CONFIG.contact.whatsappDisplay }}</span> • Email: <a :href="'mailto:' + CONFIG.contact.email" class="underline hover:text-text-primary">{{ CONFIG.contact.email }}</a></p>
+        </div>
+      </section>
+
+      <!-- Minimal Compact Footer -->
+      <footer class="py-3 text-center text-[11px] text-text-secondary">
+        <p>© 2026 Path Nirvana. All Rights Reserved.</p>
+      </footer>
+
+    </main>
+
+    <!-- Popup Modal Dialog for Book Info -->
+    <div 
+      v-if="selectedBookForModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/50 backdrop-blur-xs transition-opacity"
+      @click.self="closeBookModal"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="selectedBookForModal.titleSinhala"
+    >
+      <div 
+        class="bg-bg-secondary rounded-2xl border border-border-primary p-4 sm:p-5 max-w-sm w-full shadow-xl relative max-h-[90vh] overflow-y-auto space-y-3"
+      >
+        <!-- Prominent Top Close Button -->
+        <button 
+          type="button"
+          @click="closeBookModal"
+          class="absolute top-3 right-3 w-8 h-8 rounded-full bg-bg-tertiary/70 hover:bg-bg-tertiary text-text-secondary hover:text-text-primary flex items-center justify-center text-sm font-bold transition-all cursor-pointer"
+          aria-label="Close dialog"
+        >
+          ✕
+        </button>
+
+        <!-- Book Image -->
+        <div class="flex justify-center pt-2">
+          <img 
+            :src="selectedBookForModal.coverImage" 
+            :alt="selectedBookForModal.titleSinhala"
+            class="w-32 sm:w-36 h-auto rounded-lg shadow-md border border-border-primary"
+          />
+        </div>
+
+        <!-- Book Title & Status -->
+        <div class="text-center space-y-1">
+          <h3 class="text-base sm:text-lg font-bold text-text-primary leading-snug">
+            {{ selectedBookForModal.titleSinhala }}
+          </h3>
+          <div class="flex items-center justify-center gap-2">
+            <span class="text-base font-bold text-primary">රු. {{ selectedBookForModal.costLkr }}</span>
+            <span 
+              :class="['inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold', 
+                selectedBookForModal.inStock ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800']"
+            >
+              ● {{ selectedBookForModal.availabilitySinhala }}
+            </span>
+          </div>
+        </div>
+
+        <!-- Specifications Grid -->
+        <div class="grid grid-cols-3 gap-2 text-center text-xs">
+          <div class="p-2 bg-bg-primary/70 rounded-lg border border-border-primary">
+            <span class="text-[10px] text-text-secondary block">පිටු ගණන</span>
+            <span class="font-bold text-text-primary">{{ selectedBookForModal.pages }}</span>
+          </div>
+          <div class="p-2 bg-bg-primary/70 rounded-lg border border-border-primary">
+            <span class="text-[10px] text-text-secondary block">බර</span>
+            <span class="font-bold text-text-primary">{{ selectedBookForModal.weightGrams }}g</span>
+          </div>
+          <div class="p-2 bg-bg-primary/70 rounded-lg border border-border-primary">
+            <span class="text-[10px] text-text-secondary block">ප්‍රමාණය</span>
+            <span class="font-bold text-text-primary text-[11px] leading-tight">{{ selectedBookForModal.size }}</span>
+          </div>
+        </div>
+
+        <!-- Note -->
+        <p class="text-xs text-text-secondary text-center leading-relaxed">
+          {{ selectedBookForModal.noteSinhala }}
+        </p>
+
+        <!-- PDF link if available -->
+        <div v-if="selectedBookForModal.pdfUrl" class="text-center pt-1">
+          <a 
+            :href="selectedBookForModal.pdfUrl" 
+            target="_blank" 
+            class="text-xs text-primary hover:underline font-semibold inline-flex items-center gap-1 bg-primary-light/50 px-3 py-1.5 rounded-lg border border-primary/20"
+          >
+            <span>📄 නොමිලේ PDF බාගත කරන්න ↗</span>
+          </a>
+        </div>
+
+        <!-- Prominent Bottom Close Button -->
+        <div class="pt-2">
+          <button 
+            type="button"
+            @click="closeBookModal"
+            class="w-full py-2.5 rounded-lg bg-bg-tertiary hover:bg-border-primary text-text-primary font-bold text-xs transition-all cursor-pointer"
+          >
+            වසන්න (Close)
           </button>
         </div>
       </div>
-    </header>
+    </div>
 
-    <!-- Main Content -->
-    <main class="max-w-6xl mx-auto px-4 py-8">
-      <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        
-        <!-- Left Side: Book details card -->
-        <section class="lg:col-span-5 space-y-6">
-          <div class="bg-bg-secondary rounded-2xl border border-border-primary overflow-hidden shadow-xs hover:shadow-md transition-all duration-300">
-            <!-- Gradiant Cover Wrapper -->
-            <div class="relative bg-gradient-to-tr from-teal-500/10 to-emerald-500/10 p-6 flex justify-center items-center group">
-              <!-- Book Image -->
-              <img 
-                :src="CONFIG.book.coverImage" 
-                :alt="CONFIG.book.titleEnglish"
-                class="w-64 h-auto rounded-lg shadow-lg group-hover:scale-[1.02] transition-transform duration-300"
-              />
-              
-              <!-- Availability badge overlay -->
-              <span class="absolute top-4 left-4 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500 text-white shadow-xs">
-                <span class="w-2 h-2 rounded-full bg-white mr-1.5 animate-pulse"></span>
-                {{ translations[lang].availableNow }}
-              </span>
-            </div>
-
-            <!-- Book Specs -->
-            <div class="p-6 space-y-4">
-              <h2 class="text-xl font-bold text-text-primary">{{ translations[lang].bookDetails }}</h2>
-              
-              <div class="grid grid-cols-2 gap-4 text-sm">
-                <div class="p-3 bg-bg-primary rounded-xl border border-border-primary flex flex-col justify-center">
-                  <span class="text-text-secondary text-xs font-medium">{{ translations[lang].size }}</span>
-                  <span class="text-text-primary font-bold mt-0.5">{{ CONFIG.book.size }}</span>
-                </div>
-                
-                <div class="p-3 bg-bg-primary rounded-xl border border-border-primary flex flex-col justify-center">
-                  <span class="text-text-secondary text-xs font-medium">{{ translations[lang].pages }}</span>
-                  <span class="text-text-primary font-bold mt-0.5">{{ CONFIG.book.pages }}</span>
-                </div>
-                
-                <div class="p-3 bg-bg-primary rounded-xl border border-border-primary flex flex-col justify-center">
-                  <span class="text-text-secondary text-xs font-medium">{{ translations[lang].weight }}</span>
-                  <span class="text-text-primary font-bold mt-0.5">{{ CONFIG.book.weightGrams }} {{ translations[lang].grams }}</span>
-                </div>
-
-                <div class="p-3 bg-bg-primary rounded-xl border border-border-primary flex flex-col justify-center font-display">
-                  <span class="text-text-secondary text-xs font-medium">{{ translations[lang].printingCost }}</span>
-                  <span class="text-primary font-bold mt-0.5 text-base">{{ translations[lang].lkr }} {{ CONFIG.book.costLkr }}</span>
-                </div>
-              </div>
-
-              <!-- Brief Book Intro -->
-              <div class="pt-4 border-t border-border-primary space-y-3">
-                <p class="text-sm text-text-secondary leading-relaxed">
-                  {{ translations[lang].bookIntro }}
-                </p>
-                <div class="pt-1">
-                  <a 
-                    href="https://tipitaka.lk/library/1210" 
-                    target="_blank" 
-                    class="inline-flex items-center text-xs text-primary hover:underline font-semibold bg-primary/5 px-3 py-2 rounded-lg border border-primary/20 transition-all active:scale-[0.98]"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    {{ translations[lang].pdfLinkText }}
-                  </a>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- Right Side: Calculations & Order form -->
-        <section class="lg:col-span-7 space-y-6">
-          
-          <!-- Step 1: Selection & live calculations -->
-          <div class="bg-bg-secondary p-6 rounded-2xl border border-border-primary shadow-xs space-y-6">
-            <div class="flex items-center space-x-2">
-              <span class="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-xs">1</span>
-              <h2 class="text-lg font-bold text-text-primary">{{ translations[lang].orderTitle }}</h2>
-            </div>
-
-            <!-- Quantity Selector -->
-            <div>
-              <label class="block text-sm font-semibold text-text-secondary mb-2" for="quantity">
-                {{ translations[lang].quantity }}
-              </label>
-              <div class="flex items-center space-x-3">
-                <button 
-                  type="button"
-                  @click="quantity > 1 ? quantity-- : null"
-                  class="w-12 h-12 rounded-xl border border-border-primary flex items-center justify-center hover:bg-bg-primary text-text-primary font-bold text-xl active:scale-95 transition-all"
-                  aria-label="Decrease quantity"
-                >
-                  −
-                </button>
-                <input 
-                  id="quantity"
-                  type="number"
-                  v-model.number="quantity"
-                  min="1"
-                  class="w-20 h-12 rounded-xl border border-border-primary text-center font-bold text-lg text-text-primary bg-bg-secondary focus:outline-hidden focus:border-primary focus:ring-1 focus:ring-primary"
-                />
-                <button 
-                  type="button"
-                  @click="quantity++"
-                  class="w-12 h-12 rounded-xl border border-border-primary flex items-center justify-center hover:bg-bg-primary text-text-primary font-bold text-xl active:scale-95 transition-all"
-                  aria-label="Increase quantity"
-                >
-                  +
-                </button>
-              </div>
-            </div>
-
-            <!-- Delivery Method -->
-            <div class="space-y-3">
-              <span class="block text-sm font-semibold text-text-secondary">
-                {{ translations[lang].deliveryMethod }}
-              </span>
-              
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <!-- Courier Option -->
-                <label 
-                  :class="['relative p-4 rounded-xl border flex flex-col cursor-pointer transition-all duration-200', 
-                    deliveryMethod === 'courier' ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border-primary hover:bg-bg-primary']"
-                >
-                  <input 
-                    type="radio" 
-                    v-model="deliveryMethod" 
-                    value="courier" 
-                    class="sr-only"
-                  />
-                  <span class="text-sm font-bold text-text-primary">
-                    📦 {{ translations[lang].courier }}
-                  </span>
-                  <span class="text-xs text-text-secondary mt-1">
-                    Citypak (Rs. 450 +)
-                  </span>
-                </label>
-
-                <!-- PickMe Flash Option -->
-                <label 
-                  :class="['relative p-4 rounded-xl border flex flex-col cursor-pointer transition-all duration-200', 
-                    deliveryMethod === 'pickmeFlash' ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border-primary hover:bg-bg-primary']"
-                >
-                  <input 
-                    type="radio" 
-                    v-model="deliveryMethod" 
-                    value="pickmeFlash" 
-                    class="sr-only"
-                  />
-                  <span class="text-sm font-bold text-text-primary">
-                    ⚡ {{ translations[lang].pickmeFlash }}
-                  </span>
-                  <span class="text-xs text-text-secondary mt-1">
-                    Pay driver directly
-                  </span>
-                </label>
-
-                <!-- Self Pickup Option -->
-                <label 
-                  :class="['relative p-4 rounded-xl border flex flex-col cursor-pointer transition-all duration-200', 
-                    deliveryMethod === 'pickup' ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border-primary hover:bg-bg-primary']"
-                >
-                  <input 
-                    type="radio" 
-                    v-model="deliveryMethod" 
-                    value="pickup" 
-                    class="sr-only"
-                  />
-                  <span class="text-sm font-bold text-text-primary">
-                    🚶 {{ translations[lang].pickup }}
-                  </span>
-                  <span class="text-xs text-text-secondary mt-1">
-                    Collect from Homagama
-                  </span>
-                </label>
-              </div>
-            </div>
-
-            <!-- Live Calculation Summary Card -->
-            <div class="bg-bg-primary p-4 rounded-xl border border-border-primary space-y-3 font-display">
-              <h3 class="text-sm font-semibold text-text-primary border-b border-border-primary pb-2 flex justify-between">
-                <span>{{ translations[lang].calculations }}</span>
-                <span class="text-xs font-normal text-text-secondary">({{ quantity }} {{ quantity === 1 ? 'book' : 'books' }})</span>
-              </h3>
-              
-              <!-- Calculations breakdown -->
-              <div class="space-y-1.5 text-sm text-text-secondary">
-                <div class="flex justify-between">
-                  <span>{{ translations[lang].pricePerBook }} ({{ quantity }} × {{ CONFIG.book.costLkr }}):</span>
-                  <span class="text-text-primary font-medium">Rs. {{ bookCost }}</span>
-                </div>
-                
-                <div class="flex justify-between">
-                  <span>{{ translations[lang].deliveryFee }}:</span>
-                  <span class="text-text-primary font-medium">
-                    <span v-if="deliveryMethod === 'courier'">Rs. {{ deliveryCost }}</span>
-                    <span v-else-if="deliveryMethod === 'pickmeFlash'" class="text-amber-600 dark:text-amber-400 font-semibold">{{ translations[lang].payToDriver }}</span>
-                    <span v-else class="text-emerald-600 dark:text-emerald-400 font-semibold">{{ translations[lang].free }}</span>
-                  </span>
-                </div>
-
-
-
-                <div class="flex justify-between text-xs pt-1 border-t border-border-primary border-dashed">
-                  <span>{{ translations[lang].parcelWeight }}:</span>
-                  <span class="text-text-primary font-medium">{{ parcelWeightKg.toFixed(2) }} kg</span>
-                </div>
-              </div>
-
-              <!-- Grand Total -->
-              <div class="flex justify-between items-center text-text-primary pt-2 border-t border-border-primary font-bold text-base">
-                <span>{{ translations[lang].totalAmount }}:</span>
-                <span class="text-primary text-xl">Rs. {{ totalCost }}</span>
-              </div>
-              
-
-            </div>
-
-            <!-- Delivery Method Specific Instructions -->
-            <div class="bg-primary/5 p-4 rounded-xl border border-primary/20 text-sm space-y-3">
-              <p class="text-text-secondary leading-relaxed">
-                <span v-if="deliveryMethod === 'courier'">
-                  ℹ️ {{ translations[lang].courierDetails }}
-                </span>
-                <span v-else-if="deliveryMethod === 'pickmeFlash'">
-                  ℹ️ {{ translations[lang].pickmeDetails }}
-                </span>
-                <span v-else>
-                  ℹ️ {{ translations[lang].pickupDetails }}
-                </span>
-              </p>
-
-              <!-- Self Pickup Google Maps details -->
-              <div v-if="deliveryMethod === 'pickup'" class="pt-2 space-y-2">
-                <span class="block font-bold text-text-primary">📍 {{ translations[lang].pickupLocation }}:</span>
-                <a 
-                  :href="CONFIG.delivery.pickup.mapsUrl" 
-                  target="_blank" 
-                  class="inline-flex items-center text-primary hover:underline font-semibold"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                  {{ translations[lang].viewOnGoogleMaps }}
-                </a>
-                
-                <!-- Directions -->
-                <div class="mt-2 p-3 bg-bg-secondary rounded-lg border border-border-primary text-xs leading-relaxed text-text-secondary">
-                  <span class="font-bold text-text-primary block mb-0.5">
-                    {{ lang === 'si' ? 'පැමිණිය යුතු මඟ:' : 'Directions:' }}
-                  </span>
-                  <span>
-                    {{ lang === 'si' ? CONFIG.delivery.pickup.directionsSinhala : CONFIG.delivery.pickup.directionsEnglish }}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Step 2: Recipient details form -->
-          <div class="bg-bg-secondary p-6 rounded-2xl border border-border-primary shadow-xs space-y-6">
-            <div class="flex items-center space-x-2">
-              <span class="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-xs">2</span>
-              <h2 class="text-lg font-bold text-text-primary">
-                {{ deliveryMethod === 'pickup' ? translations[lang].detailsPickupTitle : translations[lang].detailsTitle }}
-              </h2>
-            </div>
-
-            <!-- English requirement warning -->
-            <div v-if="deliveryMethod !== 'pickup'" class="bg-amber-500/10 p-3 rounded-lg border border-amber-500/20 text-xs text-amber-800 dark:text-amber-400">
-              {{ translations[lang].addressRequirementSinhala }}
-            </div>
-
-            <div class="space-y-4">
-              <!-- Full Name Field -->
-              <div>
-                <label for="nameInput" class="block text-sm font-semibold text-text-secondary mb-1">
-                  {{ translations[lang].fullName }} <span class="text-red-500">*</span>
-                </label>
-                <input 
-                  id="nameInput"
-                  type="text" 
-                  v-model="name"
-                  @blur="nameTouched = true"
-                  :placeholder="translations[lang].fullNamePlaceholder"
-                  class="w-full h-12 px-4 rounded-xl border border-border-primary text-text-primary bg-bg-secondary focus:outline-hidden focus:border-primary focus:ring-1 focus:ring-primary text-base"
-                  autocomplete="name"
-                />
-                <!-- Error messages -->
-                <p v-if="nameTouched && isNameInvalid === 'required'" class="text-xs text-red-500 mt-1">
-                  {{ translations[lang].requiredField }}
-                </p>
-                <p v-if="nameTouched && isNameInvalid === 'english_only'" class="text-xs text-red-500 mt-1 font-semibold">
-                  {{ translations[lang].englishOnlyWarning }}
-                </p>
-              </div>
-
-              <!-- Address Field (only shown if not pickup) -->
-              <div v-if="deliveryMethod !== 'pickup'">
-                <label for="addressInput" class="block text-sm font-semibold text-text-secondary mb-1">
-                  {{ translations[lang].address }} <span class="text-red-500">*</span>
-                </label>
-                <textarea 
-                  id="addressInput"
-                  v-model="address"
-                  @blur="addressTouched = true"
-                  :placeholder="translations[lang].addressPlaceholder"
-                  rows="3"
-                  class="w-full p-4 rounded-xl border border-border-primary text-text-primary bg-bg-secondary focus:outline-hidden focus:border-primary focus:ring-1 focus:ring-primary text-base"
-                  autocomplete="street-address"
-                ></textarea>
-                <!-- Error messages -->
-                <p v-if="addressTouched && isAddressInvalid === 'required'" class="text-xs text-red-500 mt-1">
-                  {{ translations[lang].requiredField }}
-                </p>
-                <p v-if="addressTouched && isAddressInvalid === 'english_only'" class="text-xs text-red-500 mt-1 font-semibold">
-                  {{ translations[lang].englishOnlyWarning }}
-                </p>
-              </div>
-
-              <!-- Phone Field -->
-              <div>
-                <label for="phoneInput" class="block text-sm font-semibold text-text-secondary mb-1">
-                  {{ translations[lang].phone }} <span class="text-red-500">*</span>
-                </label>
-                <input 
-                  id="phoneInput"
-                  type="tel" 
-                  v-model="phone"
-                  @blur="phoneTouched = true"
-                  :placeholder="translations[lang].phonePlaceholder"
-                  class="w-full h-12 px-4 rounded-xl border border-border-primary text-text-primary bg-bg-secondary focus:outline-hidden focus:border-primary focus:ring-1 focus:ring-primary text-base"
-                  autocomplete="tel"
-                />
-                <!-- Error messages -->
-                <p v-if="phoneTouched && isPhoneInvalid === 'required'" class="text-xs text-red-500 mt-1">
-                  {{ translations[lang].requiredField }}
-                </p>
-                <p v-if="phoneTouched && isPhoneInvalid === 'invalid'" class="text-xs text-red-500 mt-1">
-                  {{ translations[lang].invalidPhone }}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <!-- Step 3: Bank transfer instructions (hidden for self pickup) -->
-          <div 
-            v-if="deliveryMethod !== 'pickup'"
-            class="bg-bg-secondary p-6 rounded-2xl border border-border-primary shadow-xs space-y-4"
-          >
-            <div class="flex items-center space-x-2">
-              <span class="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-xs">3</span>
-              <h2 class="text-lg font-bold text-text-primary">{{ translations[lang].bankDetailsTitle }}</h2>
-            </div>
-            
-            <p class="text-sm text-text-secondary">
-              {{ translations[lang].bankDetailsIntro }}
-            </p>
-
-            <div class="bg-bg-primary rounded-xl border border-border-primary divide-y divide-border-primary overflow-hidden">
-              <!-- Bank Name -->
-              <div class="p-3.5 flex items-center justify-between text-sm">
-                <div>
-                  <span class="text-text-secondary text-xs block">{{ translations[lang].bankName }}</span>
-                  <span class="text-text-primary font-bold">{{ CONFIG.payment.bankTransfer.bankName }}</span>
-                </div>
-                <button 
-                  @click="copyText(CONFIG.payment.bankTransfer.bankName.split(' ')[0], 'bankName')"
-                  class="px-3 py-1.5 rounded-lg border border-border-primary text-text-secondary text-xs hover:bg-bg-secondary active:scale-95 transition-all flex items-center space-x-1"
-                >
-                  <span>{{ copiedStates.bankName ? translations[lang].copied : translations[lang].copy }}</span>
-                </button>
-              </div>
-
-              <!-- Branch -->
-              <div class="p-3.5 flex items-center justify-between text-sm">
-                <div>
-                  <span class="text-text-secondary text-xs block">{{ translations[lang].branch }}</span>
-                  <span class="text-text-primary font-bold">{{ CONFIG.payment.bankTransfer.branch }}</span>
-                </div>
-              </div>
-
-              <!-- Account Number -->
-              <div class="p-3.5 flex items-center justify-between text-sm">
-                <div>
-                  <span class="text-text-secondary text-xs block">{{ translations[lang].accountNumber }}</span>
-                  <span class="text-text-primary font-bold text-base tracking-wider">{{ CONFIG.payment.bankTransfer.accountNumber }}</span>
-                </div>
-                <button 
-                  @click="copyText(CONFIG.payment.bankTransfer.accountNumber, 'accountNumber')"
-                  class="px-3 py-1.5 rounded-lg border border-border-primary text-text-secondary text-xs hover:bg-bg-secondary active:scale-95 transition-all flex items-center space-x-1"
-                >
-                  <span>{{ copiedStates.accountNumber ? translations[lang].copied : translations[lang].copy }}</span>
-                </button>
-              </div>
-
-              <!-- Account Name -->
-              <div class="p-3.5 flex items-center justify-between text-sm">
-                <div>
-                  <span class="text-text-secondary text-xs block">{{ translations[lang].accountName }}</span>
-                  <span class="text-text-primary font-bold">{{ CONFIG.payment.bankTransfer.accountName }}</span>
-                </div>
-                <button 
-                  @click="copyText(CONFIG.payment.bankTransfer.accountName, 'accountName')"
-                  class="px-3 py-1.5 rounded-lg border border-border-primary text-text-secondary text-xs hover:bg-bg-secondary active:scale-95 transition-all flex items-center space-x-1"
-                >
-                  <span>{{ copiedStates.accountName ? translations[lang].copied : translations[lang].copy }}</span>
-                </button>
-              </div>
-
-              <!-- Dynamic Amount To Transfer -->
-              <div class="p-3.5 bg-primary/5 flex items-center justify-between text-sm font-semibold">
-                <div>
-                  <span class="text-primary text-xs block">{{ translations[lang].totalAmount }}</span>
-                  <span class="text-text-primary font-bold text-lg">Rs. {{ totalCost }}</span>
-                </div>
-                <button 
-                  @click="copyText(totalCost.toString(), 'totalAmount')"
-                  class="px-3 py-1.5 rounded-lg border border-primary/20 bg-white text-primary text-xs hover:bg-primary/10 active:scale-95 transition-all flex items-center space-x-1"
-                >
-                  <span>{{ copiedStates.totalAmount ? translations[lang].copied : translations[lang].copy }}</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Step 4 / Final Action: Notification and Dispatch -->
-          <div class="bg-bg-secondary p-6 rounded-2xl border border-border-primary shadow-xs space-y-6">
-            <div class="flex items-center space-x-2">
-              <span class="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-xs">
-                {{ deliveryMethod === 'pickup' ? '3' : '4' }}
-              </span>
-              <h2 class="text-lg font-bold text-text-primary">{{ translations[lang].notificationTitle }}</h2>
-            </div>
-
-            <p class="text-sm text-text-secondary leading-relaxed">
-              <span v-if="deliveryMethod === 'pickup'">
-                💡 {{ lang === 'si' ? 'පොත් ලබා ගැනීමට පැමිණීමට පෙර අපව කලින් දැනුවත් කිරීම අවශ්‍ය නොවේ. ඔබ පැමිණෙන විට තොග පවතින ආකාරය අනුව පොත් ලබාගත හැක. (කලින් ගෙවීමකින් තොරව පොත් කලින් වෙන්කර තබාගත නොහැකි බව කරුණාවෙන් සලකන්න.)' : 'You do not need to notify us in advance. Books can be collected based on stock availability when you arrive. (Please note that books cannot be reserved without prior payment.)' }}
-              </span>
-              <span v-else>
-                {{ translations[lang].notificationIntro }}
-              </span>
-            </p>
-
-            <!-- Send Action Buttons -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <!-- WhatsApp Submit Button -->
-              <button 
-                @click="submitViaWhatsApp"
-                :disabled="isFormInvalid && (nameTouched || addressTouched || phoneTouched)"
-                class="w-full py-4 px-6 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transform active:scale-[0.98] transition-all flex items-center justify-center space-x-2"
-              >
-                <!-- WhatsApp SVG icon -->
-                <svg class="w-6 h-6 fill-current" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M12.012 2c-5.506 0-9.989 4.478-9.99 9.984a9.96 9.96 0 0 0 1.333 4.982L2 22l5.233-1.371a9.936 9.936 0 0 0 4.779 1.22h.005c5.505 0 9.99-4.477 9.99-9.985C22.007 6.478 17.518 2 12.012 2zm6.068 14.254c-.267.753-1.31 1.37-1.808 1.43-.464.056-.99.083-1.63-.122-.397-.127-.925-.333-1.583-.615-2.793-1.196-4.606-4.043-4.747-4.23-.14-.188-1.127-1.499-1.127-2.86 0-1.36.703-2.029.983-2.31.28-.28.615-.352.82-.352h.588c.19 0 .444-.072.693.528.257.618.882 2.148.958 2.302.076.155.127.336.025.539-.101.203-.152.33-.304.507-.152.178-.32.397-.457.533-.153.153-.312.32-.135.624.178.304.79 1.295 1.688 2.09.155.138.31.277.472.41 1.157 1.05 2.05 1.365 2.353 1.488.303.123.48.102.66-.102.179-.203.766-.889.97-1.194.203-.304.407-.254.686-.153.28.102 1.777.838 2.083.99.304.153.508.229.584.356.076.127.076.736-.19 1.49z"/>
-                </svg>
-                <span>{{ translations[lang].whatsappBtn }}</span>
-              </button>
-
-              <!-- Email Submit Button -->
-              <button 
-                @click="submitViaEmail"
-                :disabled="isFormInvalid && (nameTouched || addressTouched || phoneTouched)"
-                class="w-full py-4 px-6 rounded-xl bg-primary hover:bg-primary-hover text-white font-bold shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transform active:scale-[0.98] transition-all flex items-center justify-center space-x-2"
-              >
-                <!-- Email SVG icon -->
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
-                <span>{{ translations[lang].emailBtn }}</span>
-              </button>
-            </div>
-
-            <!-- Email Display and WhatsApp Display text below -->
-            <div class="text-xs text-text-secondary text-center space-y-1">
-              <p>Email: <a :href="'mailto:' + CONFIG.contact.email" class="underline hover:text-text-primary">{{ CONFIG.contact.email }}</a></p>
-              <p>WhatsApp: <span class="font-bold">{{ CONFIG.contact.whatsappDisplay }}</span></p>
-            </div>
-          </div>
-        </section>
-
-      </div>
-    </main>
-
-    <!-- Footer -->
-    <footer class="mt-16 border-t border-border-primary bg-bg-secondary py-8 text-center text-xs text-text-secondary transition-colors duration-300">
-      <div class="max-w-6xl mx-auto px-4 space-y-2">
-        <p>© 2026 Path Nirvana. All Rights Reserved.</p>
-      </div>
-    </footer>
   </div>
 </template>
 

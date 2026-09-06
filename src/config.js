@@ -1,20 +1,37 @@
 // Webtool Configuration File
-// You can easily change these values to update the site's rates, bank details, or book details.
+// You can easily change these values to update rates, bank details, or book details.
 
 export const CONFIG = {
-  book: {
-    titleSinhala: "Mindfulness සරලව දකිමු සතිය",
-    titleEnglish: "Mindfulness සරලව දකිමු සතිය",
-    costLkr: 80, // Book printing cost
-    weightGrams: 110, // Weight per book in grams
-    size: "14.7cm × 22.2cm", // Physical size
-    pages: 74, // Number of pages
-    availabilitySinhala: "දැනට තොග ඇත", // Available now
-    availabilityEnglish: "Available Now",
-    // Set to false or a date string if not available. e.g., "2026 අගෝස්තු 15"
-    tentativeDate: null,
-    coverImage: "./book-cover.png",
-  },
+  books: [
+    {
+      id: 'mindfulness',
+      titleSinhala: "Mindfulness සරලව දකිමු සතිය",
+      costLkr: 80,
+      weightGrams: 110,
+      size: "14.7cm × 22.2cm",
+      pages: 74,
+      inStock: true,
+      availabilitySinhala: "දැනට තොග ඇත",
+      noteSinhala: "ධර්ම දානයක් ලෙස මුද්‍රණ වියදමටත් වඩා අඩුවෙන් ලබා දේ.",
+      pdfUrl: "https://tipitaka.lk/library/1210",
+      coverImage: "./book-cover.png",
+      defaultQty: 50,
+    },
+    {
+      id: 'samantha-pattanaya',
+      titleSinhala: "සමන්ත පට්ඨානය",
+      costLkr: 60,
+      weightGrams: 100,
+      size: "14.7cm × 22.2cm",
+      pages: 64,
+      inStock: false,
+      availabilitySinhala: "තවමත් තොග ලැබී නොමැත (ළඟදීම)",
+      noteSinhala: "ධර්ම දානයක් ලෙස මුද්‍රණ වියදමටත් වඩා අඩුවෙන් ලබා දේ.",
+      pdfUrl: "https://tipitaka.lk/library/1220",
+      coverImage: "./samantha-pattana.png",
+      defaultQty: 0,
+    }
+  ],
   delivery: {
     // Citypak Courier configuration
     courier: {
@@ -26,7 +43,7 @@ export const CONFIG = {
     },
     // PickMe Flash configuration
     pickmeFlash: {
-      radiusLimitKm: 15,
+      radiusLimitKm: 20,
       locationCenter: "Homagama (හෝමාගම)",
     },
     // Pickup configuration
@@ -34,7 +51,6 @@ export const CONFIG = {
       locationName: "Path Nirvana Homagama",
       mapsUrl: "https://maps.app.goo.gl/An6pt9J1GnuAb62Z7",
       directionsSinhala: "190 බස් මාර්ගයේ, පනාගොඩ පාසල් හන්දියෙන් රොමියෙල් මාවතට හැරී මීටර් 50ක් පමණ ඉදිරියට එන විට වම් පසින් හමුවන දෙවන බොරළු පාර.",
-      directionsEnglish: "From the Panagoda School Junction on the 190 bus route, turn into Romiel Mawatha, walk about 50m forward, and it is the 2nd gravel road on your left."
     }
   },
   payment: {
