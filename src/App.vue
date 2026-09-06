@@ -3,15 +3,59 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { CONFIG } from './config';
 
 // -------------------------------------------------------------
-// State Management
+// State Management & URL Query Initialization
 // -------------------------------------------------------------
-// Initialize quantities for each book from CONFIG defaultQty
-const quantities = ref({});
-CONFIG.books.forEach(b => {
-  quantities.value[b.id] = b.defaultQty ?? 0;
-});
+function getInitialParams() {
+  if (typeof window === 'undefined') {
+    return {
+      quantities: { mindfulness: 50, 'samantha-pattanaya': 0 },
+      method: 'courier'
+    };
+  }
 
-const deliveryMethod = ref('courier'); // courier, pickup, pickmeFlash
+  const params = new URLSearchParams(window.location.search);
+
+  const hasSathiyaParam = params.has('sathiya') || params.has('q1') || params.has('qty1') || params.has('qty') || params.has('q') || params.has('mindfulness');
+  const hasPattanaParam = params.has('pattana') || params.has('q2') || params.has('qty2') || params.has('samantha-pattanaya');
+  const hasAnyBookParam = hasSathiyaParam || hasPattanaParam;
+
+  const initQuantities = {};
+
+  if (hasAnyBookParam) {
+    // If any book is explicitly specified in the URL, unspecified books must be 0
+    if (hasSathiyaParam) {
+      const raw = params.get('sathiya') ?? params.get('q1') ?? params.get('qty1') ?? params.get('qty') ?? params.get('q') ?? params.get('mindfulness');
+      const v = parseInt(raw, 10);
+      initQuantities.mindfulness = (!isNaN(v) && v >= 0) ? v : 0;
+    } else {
+      initQuantities.mindfulness = 0;
+    }
+
+    if (hasPattanaParam) {
+      const raw = params.get('pattana') ?? params.get('q2') ?? params.get('qty2') ?? params.get('samantha-pattanaya');
+      const v = parseInt(raw, 10);
+      initQuantities['samantha-pattanaya'] = (!isNaN(v) && v >= 0) ? v : 0;
+    } else {
+      initQuantities['samantha-pattanaya'] = 0;
+    }
+  } else {
+    // Default fallback when visiting URL without any book params
+    initQuantities.mindfulness = CONFIG.books[0]?.defaultQty ?? 50;
+    initQuantities['samantha-pattanaya'] = CONFIG.books[1]?.defaultQty ?? 0;
+  }
+
+  let method = 'courier';
+  const mParam = params.get('method') || params.get('m');
+  if (mParam && ['courier', 'pickup', 'pickmeFlash'].includes(mParam)) {
+    method = mParam;
+  }
+
+  return { quantities: initQuantities, method };
+}
+
+const initialParams = getInitialParams();
+const quantities = ref(initialParams.quantities);
+const deliveryMethod = ref(initialParams.method);
 
 // Form Fields
 const name = ref('');
@@ -53,7 +97,7 @@ function decrementQty(bookId) {
 }
 
 // -------------------------------------------------------------
-// Initialization & URL Query Sync
+// Lifecycle & Real-time URL Sync
 // -------------------------------------------------------------
 onMounted(() => {
   // Listen for Escape key to close modal
@@ -62,40 +106,6 @@ onMounted(() => {
       closeBookModal();
     }
   });
-
-  // Sync URL search query parameters if present
-  const params = new URLSearchParams(window.location.search);
-
-  // Parse 'sathiya' query param (with fallback to legacy keys)
-  if (params.has('sathiya')) {
-    const q1 = parseInt(params.get('sathiya'), 10);
-    if (!isNaN(q1) && q1 >= 0) {
-      quantities.value.mindfulness = q1;
-    }
-  } else if (params.has('q1') || params.has('qty1') || params.has('qty') || params.has('q') || params.has('mindfulness')) {
-    const q1 = parseInt(params.get('q1') || params.get('qty1') || params.get('qty') || params.get('q') || params.get('mindfulness'), 10);
-    if (!isNaN(q1) && q1 >= 0) {
-      quantities.value.mindfulness = q1;
-    }
-  }
-
-  // Parse 'pattana' query param (with fallback to legacy keys)
-  if (params.has('pattana')) {
-    const q2 = parseInt(params.get('pattana'), 10);
-    if (!isNaN(q2) && q2 >= 0) {
-      quantities.value['samantha-pattanaya'] = q2;
-    }
-  } else if (params.has('q2') || params.has('qty2') || params.has('samantha-pattanaya')) {
-    const q2 = parseInt(params.get('q2') || params.get('qty2') || params.get('samantha-pattanaya'), 10);
-    if (!isNaN(q2) && q2 >= 0) {
-      quantities.value['samantha-pattanaya'] = q2;
-    }
-  }
-
-  const mParam = params.get('method') || params.get('m');
-  if (mParam && ['courier', 'pickup', 'pickmeFlash'].includes(mParam)) {
-    deliveryMethod.value = mParam;
-  }
 });
 
 // Real-time synchronization back to URL query parameters
