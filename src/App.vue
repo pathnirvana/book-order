@@ -96,6 +96,52 @@ function decrementQty(bookId) {
   }
 }
 
+function onQtyKeydown(event) {
+  // Allow navigation and editing control keys
+  const allowedKeys = [
+    'Backspace', 'Delete', 'Tab', 'Escape', 'Enter', 
+    'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'
+  ];
+  if (allowedKeys.includes(event.key)) {
+    return;
+  }
+  // Allow Ctrl/Cmd shortcuts (Copy, Paste, Select All, Undo, etc.)
+  if ((event.ctrlKey || event.metaKey) && ['a', 'c', 'v', 'x', 'z'].includes(event.key.toLowerCase())) {
+    return;
+  }
+  // Block any non-digit character (blocks e, E, +, -, ., symbols, letters)
+  if (!/^\d$/.test(event.key)) {
+    event.preventDefault();
+  }
+}
+
+function onQtyInput(bookId, event) {
+  const cleanDigits = event.target.value.replace(/\D/g, '');
+  event.target.value = cleanDigits;
+  quantities.value[bookId] = cleanDigits === '' ? 0 : parseInt(cleanDigits, 10);
+}
+
+function onQtyPaste(event) {
+  const pasteData = (event.clipboardData || window.clipboardData)?.getData('text') || '';
+  if (!/^\d+$/.test(pasteData)) {
+    event.preventDefault();
+    const cleanDigits = pasteData.replace(/\D/g, '');
+    if (cleanDigits) {
+      document.execCommand('insertText', false, cleanDigits);
+    }
+  }
+}
+
+function onQtyBlur(bookId, event) {
+  const val = quantities.value[bookId];
+  if (val === '' || isNaN(val) || val == null) {
+    quantities.value[bookId] = 0;
+  }
+  if (event?.target) {
+    event.target.value = quantities.value[bookId];
+  }
+}
+
 // -------------------------------------------------------------
 // Lifecycle & Real-time URL Sync
 // -------------------------------------------------------------
@@ -168,7 +214,7 @@ const isPhoneInvalid = computed(() => {
 });
 
 const isFormInvalid = computed(() => {
-  return totalBooksCount.value <= 0 || !!isNameInvalid.value || !!isAddressInvalid.value || !!isPhoneInvalid.value;
+  return totalBooksCount.value < 20 || !!isNameInvalid.value || !!isAddressInvalid.value || !!isPhoneInvalid.value;
 });
 
 // -------------------------------------------------------------
@@ -300,14 +346,14 @@ const formattedOrderMessage = computed(() => {
 });
 
 function submitViaWhatsApp() {
+  if (totalBooksCount.value < 20) {
+    alert('ඇණවුම් කළ හැකි අවම මුළු පොත් සංඛ්‍යාව 20කි.');
+    return;
+  }
+
   nameTouched.value = true;
   addressTouched.value = true;
   phoneTouched.value = true;
-  
-  if (totalBooksCount.value <= 0) {
-    alert('කරුණාකර අවම වශයෙන් එක් පොතක්වත් තෝරන්න.');
-    return;
-  }
 
   if (isFormInvalid.value) {
     alert('කරුණාකර පෝරමයේ ඇති වැරදි නිවැරදි කර නැවත උත්සාහ කරන්න.');
@@ -320,14 +366,14 @@ function submitViaWhatsApp() {
 }
 
 function submitViaEmail() {
+  if (totalBooksCount.value < 20) {
+    alert('ඇණවුම් කළ හැකි අවම මුළු පොත් සංඛ්‍යාව 20කි.');
+    return;
+  }
+
   nameTouched.value = true;
   addressTouched.value = true;
   phoneTouched.value = true;
-  
-  if (totalBooksCount.value <= 0) {
-    alert('කරුණාකර අවම වශයෙන් එක් පොතක්වත් තෝරන්න.');
-    return;
-  }
 
   if (isFormInvalid.value) {
     alert('කරුණාකර පෝරමයේ ඇති වැරදි නිවැරදි කර නැවත උත්සාහ කරන්න.');
@@ -415,9 +461,14 @@ function submitViaEmail() {
                 −
               </button>
               <input 
-                type="number"
-                v-model.number="quantities[book.id]"
-                min="0"
+                type="text"
+                inputmode="numeric"
+                pattern="[0-9]*"
+                :value="quantities[book.id]"
+                @keydown="onQtyKeydown"
+                @input="onQtyInput(book.id, $event)"
+                @paste="onQtyPaste"
+                @blur="onQtyBlur(book.id, $event)"
                 class="w-12 sm:w-14 h-8 rounded-lg border border-border-primary text-center font-bold text-xs sm:text-sm text-text-primary bg-bg-secondary focus:outline-hidden focus:border-primary"
               />
               <button 
@@ -432,9 +483,10 @@ function submitViaEmail() {
           </div>
         </div>
 
-        <!-- Warning if no books selected -->
-        <p v-if="totalBooksCount === 0" class="text-xs text-amber-700 bg-amber-50 p-2 rounded-lg border border-amber-200">
-          ⚠️ කරුණාකර අවම වශයෙන් එක් පොතකින් හෝ අවශ්‍ය ප්‍රමාණය ඇතුළත් කරන්න.
+        <!-- Warning if less than 20 books selected -->
+        <p v-if="totalBooksCount < 20" class="text-xs text-amber-800 bg-amber-50 p-2.5 rounded-lg border border-amber-200 flex items-start gap-1.5">
+          <span>⚠️</span>
+          <span>ඇණවුම් කළ හැකි අවම මුළු පොත් සංඛ්‍යාව 20කි. (දැනට තෝරාගෙන ඇත්තේ: <strong>{{ totalBooksCount }}</strong>)</span>
         </p>
 
         <!-- Delivery Method Radios -->
@@ -470,8 +522,8 @@ function submitViaEmail() {
           </div>
         </div>
 
-        <!-- Price Breakdown Box -->
-        <div class="bg-bg-primary/70 p-2.5 rounded-lg border border-border-primary space-y-1 text-xs">
+        <!-- Price Breakdown Box (hidden if less than 20 books) -->
+        <div v-if="totalBooksCount >= 20" class="bg-bg-primary/70 p-2.5 rounded-lg border border-border-primary space-y-1 text-xs">
           <div class="flex justify-between text-text-secondary">
             <span>
               පොත් සඳහා 
@@ -605,8 +657,8 @@ function submitViaEmail() {
         </div>
       </section>
 
-      <!-- Step 3: Bank Transfer Instructions (hidden for pickup) -->
-      <section v-if="deliveryMethod !== 'pickup'" class="bg-bg-secondary rounded-xl border border-border-primary p-3 sm:p-4 shadow-xs space-y-2">
+      <!-- Step 3: Bank Transfer Instructions (hidden for pickup or when books < 20) -->
+      <section v-if="deliveryMethod !== 'pickup' && totalBooksCount >= 20" class="bg-bg-secondary rounded-xl border border-border-primary p-3 sm:p-4 shadow-xs space-y-2">
         <div class="flex items-center justify-between">
           <h2 class="text-sm font-bold text-text-primary">3. බැංකු තැන්පතු විස්තර</h2>
           <span class="text-[11px] text-red-700 bg-red-50 px-2 py-0.5 rounded border border-red-200 font-semibold">
@@ -692,7 +744,7 @@ function submitViaEmail() {
           <!-- WhatsApp Button -->
           <button 
             @click="submitViaWhatsApp"
-            :disabled="isFormInvalid && (nameTouched || addressTouched || phoneTouched)"
+            :disabled="totalBooksCount < 20 || (isFormInvalid && (nameTouched || addressTouched || phoneTouched))"
             class="w-full h-11 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-xs disabled:opacity-50 disabled:cursor-not-allowed transform active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
             <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24">
@@ -704,7 +756,7 @@ function submitViaEmail() {
           <!-- Email Button -->
           <button 
             @click="submitViaEmail"
-            :disabled="isFormInvalid && (nameTouched || addressTouched || phoneTouched)"
+            :disabled="totalBooksCount < 20 || (isFormInvalid && (nameTouched || addressTouched || phoneTouched))"
             class="w-full h-11 px-4 rounded-lg bg-primary hover:bg-primary-hover text-white font-bold text-sm shadow-xs disabled:opacity-50 disabled:cursor-not-allowed transform active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
