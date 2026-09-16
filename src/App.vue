@@ -73,6 +73,12 @@ const copiedStates = ref({
   totalAmount: false,
 });
 
+const buttonFeedback = ref({
+  copy: false,
+  share: false,
+  screenshot: '', // '', 'loading', 'success', 'error'
+});
+
 // Modal state for viewing book info
 const selectedBookForModal = ref(null);
 
@@ -300,6 +306,515 @@ const copyText = (text, field) => {
     }, 2000);
   });
 };
+
+// -------------------------------------------------------------
+// Action Buttons: Copy, Share, Screenshot
+// -------------------------------------------------------------
+function copyOrderSummaryText() {
+  const lines = [];
+
+  CONFIG.books.forEach(b => {
+    const q = Number(quantities.value[b.id]) || 0;
+    if (q > 0) {
+      const bookTitle = b.id === 'mindfulness' ? 'Mindfulness සතිය' : b.titleSinhala;
+      lines.push(`• ${bookTitle}: පොත් ${q}`);
+    }
+  });
+
+  const deliveryNames = {
+    courier: 'කූරියර් Courier',
+    pickmeFlash: 'PickMe Flash',
+    pickup: 'පැමිණ ලබා ගැනීම',
+  };
+  lines.push(`ක්රමය: ${deliveryNames[deliveryMethod.value] || deliveryMethod.value}`);
+
+  lines.push(`පොත්: රු. ${totalBookCost.value} (${bookCostFormulaText.value})`);
+  if (deliveryMethod.value === 'courier') {
+    lines.push(`Courier: රු. ${deliveryCost.value}`);
+  } else if (deliveryMethod.value === 'pickmeFlash') {
+    lines.push(`Courier: රියදුරුට ගෙවන්න`);
+  }
+  lines.push(`මුළු මුදල: රු. ${totalCost.value}`);
+
+  if (deliveryMethod.value !== 'pickup') {
+    lines.push('');
+    lines.push('බැංකු විස්තර:');
+    lines.push(`• බැංකුව: ${CONFIG.payment.bankTransfer.bankName}`);
+    lines.push(`• ශාඛාව: ${CONFIG.payment.bankTransfer.branch}`);
+    lines.push(`• ගිණුම් අංකය: ${CONFIG.payment.bankTransfer.accountNumber}`);
+    lines.push(`• නම: ${CONFIG.payment.bankTransfer.accountName}`);
+    lines.push('');
+    lines.push('* COD නොමැත.');
+    lines.push('* තැන්පතුවෙන් පසු Deposit Slip, English වලින් Name, Address සහ Phone Number එවන්න.');
+    lines.push('* WhatsApp 0715215866 වෙත');
+  }
+
+  const text = lines.join('\n');
+  navigator.clipboard.writeText(text).then(() => {
+    buttonFeedback.value.copy = true;
+    setTimeout(() => {
+      buttonFeedback.value.copy = false;
+    }, 2000);
+  }).catch((err) => {
+    console.error('Failed to copy order text:', err);
+  });
+}
+
+function sharePageLink() {
+  navigator.clipboard.writeText(window.location.href).then(() => {
+    buttonFeedback.value.share = true;
+    setTimeout(() => {
+      buttonFeedback.value.share = false;
+    }, 2000);
+  }).catch((err) => {
+    console.error('Failed to copy page link:', err);
+  });
+}
+
+function preloadImage(src) {
+  return new Promise((resolve) => {
+    if (!src) return resolve(null);
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+function drawCanvasRoundedRect(ctx, x, y, width, height, radius, fillStyle, strokeStyle, lineWidth = 1) {
+  ctx.save();
+  ctx.beginPath();
+  if (typeof ctx.roundRect === 'function') {
+    ctx.roundRect(x, y, width, height, radius);
+  } else {
+    const r = typeof radius === 'number' ? radius : 8;
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + width - r, y);
+    ctx.arcTo(x + width, y, x + width, y + r, r);
+    ctx.lineTo(x + width, y + height - r);
+    ctx.arcTo(x + width, y + height, x + width - r, y + height, r);
+    ctx.lineTo(x + r, y + height);
+    ctx.arcTo(x, y + height, x, y + height - r, r);
+    ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+  }
+  if (fillStyle) {
+    ctx.fillStyle = fillStyle;
+    ctx.fill();
+  }
+  if (strokeStyle) {
+    ctx.strokeStyle = strokeStyle;
+    ctx.lineWidth = lineWidth;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawRoundedImage(ctx, img, x, y, width, height, radius) {
+  ctx.save();
+  ctx.beginPath();
+  if (typeof ctx.roundRect === 'function') {
+    ctx.roundRect(x, y, width, height, radius);
+  } else {
+    ctx.rect(x, y, width, height);
+  }
+  ctx.clip();
+  ctx.drawImage(img, x, y, width, height);
+  ctx.restore();
+  
+  // Subtle border around image
+  ctx.save();
+  ctx.beginPath();
+  if (typeof ctx.roundRect === 'function') {
+    ctx.roundRect(x, y, width, height, radius);
+  } else {
+    ctx.rect(x, y, width, height);
+  }
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.12)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawOrderSummaryOnCanvas(ctx, w, h, bookCovers = {}) {
+  // 1. Canvas Background: calm warm-stone neutral
+  ctx.fillStyle = '#ebeee8';
+  ctx.fillRect(0, 0, w, h);
+
+  // 2. Outer Card with subtle drop shadow
+  ctx.save();
+  ctx.shadowColor = 'rgba(15, 118, 110, 0.08)';
+  ctx.shadowBlur = 24;
+  ctx.shadowOffsetY = 8;
+  drawCanvasRoundedRect(ctx, 30, 30, 1140, 1440, 32, '#ffffff', '#d5ded2', 2);
+  ctx.restore();
+
+  // 3. Header Banner (with clipped top rounded corners)
+  ctx.save();
+  ctx.beginPath();
+  if (typeof ctx.roundRect === 'function') {
+    ctx.roundRect(30, 30, 1140, 1440, 32);
+  } else {
+    ctx.rect(30, 30, 1140, 1440);
+  }
+  ctx.clip();
+
+  const headerGrad = ctx.createLinearGradient(30, 30, 1170, 195);
+  headerGrad.addColorStop(0, '#064e43');
+  headerGrad.addColorStop(1, '#0f766e');
+  ctx.fillStyle = headerGrad;
+  ctx.fillRect(30, 30, 1140, 168);
+
+  // Gold top accent stripe
+  ctx.fillStyle = '#f59e0b';
+  ctx.fillRect(30, 30, 1140, 6);
+
+  // Header Badge
+  drawCanvasRoundedRect(ctx, 70, 54, 220, 32, 16, 'rgba(254, 243, 199, 0.95)', null);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#92400e';
+  ctx.font = 'bold 14px "Noto Sans Sinhala", sans-serif';
+  ctx.fillText('✨ ධර්ම දාන පොත් ඇණවුම', 180, 70);
+
+  // Title & Subtitle
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 38px Outfit, sans-serif';
+  ctx.fillText('Path Nirvana', 70, 118);
+
+  ctx.fillStyle = '#a7f3d0';
+  ctx.font = '500 17px "Noto Sans Sinhala", Outfit, sans-serif';
+  ctx.fillText('හෝමාගම (Homagama) • Sri Lanka', 70, 154);
+
+  // Date Pill
+  const dateStr = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  drawCanvasRoundedRect(ctx, 910, 54, 220, 38, 19, 'rgba(255, 255, 255, 0.18)', null);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 16px Outfit, sans-serif';
+  ctx.fillText('📅 ' + dateStr, 1020, 73);
+
+  // Delivery Method Pill
+  const delPillName = deliveryMethod.value === 'courier' ? '📦 කූරියර් Courier' : (deliveryMethod.value === 'pickmeFlash' ? '⚡ PickMe Flash' : '🚶 පැමිණ ලබා ගැනීම');
+  drawCanvasRoundedRect(ctx, 890, 104, 240, 44, 22, '#ffffff', null);
+  ctx.fillStyle = '#0f766e';
+  ctx.font = 'bold 16px "Noto Sans Sinhala", sans-serif';
+  ctx.fillText(delPillName, 1010, 126);
+
+  ctx.restore();
+
+  // 4. Section 1: Ordered Books
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#374151';
+  ctx.font = 'bold 20px "Noto Sans Sinhala", Outfit, sans-serif';
+  ctx.fillText('1. ඇණවුම් කළ පොත් (Ordered Books)', 70, 230);
+
+  const activeBooks = CONFIG.books.filter(b => (Number(quantities.value[b.id]) || 0) > 0);
+  let bookY = 258;
+  activeBooks.forEach((b) => {
+    const q = Number(quantities.value[b.id]) || 0;
+    const cardH = 124;
+    
+    drawCanvasRoundedRect(ctx, 60, bookY, 1080, cardH, 16, '#f9faf7', '#e2e8df', 1.5);
+
+    const img = bookCovers[b.id];
+    if (img) {
+      drawRoundedImage(ctx, img, 76, bookY + 12, 74, 100, 8);
+    } else {
+      drawCanvasRoundedRect(ctx, 76, bookY + 12, 74, 100, 8, '#e2e8df', null);
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#6b7280';
+      ctx.font = '32px sans-serif';
+      ctx.fillText('📖', 113, bookY + 62);
+    }
+
+    // Title
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#111827';
+    ctx.font = 'bold 23px "Noto Sans Sinhala", sans-serif';
+    const bookTitle = b.id === 'mindfulness' ? 'Mindfulness සතිය' : b.titleSinhala;
+    ctx.fillText(bookTitle, 168, bookY + 36);
+
+    // Quantity Pill right beside title (measured dynamically to prevent any collision)
+    const titleWidth = ctx.measureText(bookTitle).width;
+    const pillX = 168 + titleWidth + 16;
+    drawCanvasRoundedRect(ctx, pillX, bookY + 20, 100, 32, 16, '#e6f4f1', '#0f766e', 1.5);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#0f766e';
+    ctx.font = 'bold 16px "Noto Sans Sinhala", Outfit, sans-serif';
+    ctx.fillText(`පොත් ${q}`, pillX + 50, bookY + 36);
+
+    // Specs (Row 2)
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '16px "Noto Sans Sinhala", Outfit, sans-serif';
+    ctx.fillText(`පිටු ${b.pages} • බර ${b.weightGrams}g • පිටපතක් රු. ${b.costLkr}`, 168, bookY + 74);
+
+    // Note (Row 3)
+    ctx.fillStyle = '#9ca3af';
+    ctx.font = '14px "Noto Sans Sinhala", sans-serif';
+    ctx.fillText('ධර්ම දානයක් ලෙස මුද්‍රණ වියදමටත් වඩා අඩුවෙන් ලබා දේ', 168, bookY + 100);
+
+    // Price calculation (Right side)
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '500 17px Outfit, "Noto Sans Sinhala", sans-serif';
+    ctx.fillText(`${q} × රු. ${b.costLkr}`, 1115, bookY + 40);
+
+    ctx.fillStyle = '#0f766e';
+    ctx.font = 'bold 28px Outfit, sans-serif';
+    ctx.fillText(`රු. ${(q * b.costLkr).toLocaleString()}`, 1115, bookY + 80);
+
+    bookY += cardH + 14;
+  });
+
+  // 5. Section 2: Delivery & Total Box
+  const totalBoxY = Math.max(bookY + 4, 538);
+  const totalBoxH = 175;
+  drawCanvasRoundedRect(ctx, 60, totalBoxY, 1080, totalBoxH, 18, '#ffffff', '#d5ded2', 1.5);
+
+  const deliveryLabels = {
+    courier: 'කූරියර් Courier',
+    pickmeFlash: 'PickMe Flash',
+    pickup: 'පැමිණ ලබා ගැනීම',
+  };
+  const deliveryLabel = deliveryLabels[deliveryMethod.value] || deliveryMethod.value;
+
+  let deliveryFeeStr = 'රු. 0';
+  if (deliveryMethod.value === 'courier') {
+    deliveryFeeStr = `රු. ${deliveryCost.value.toLocaleString()}`;
+  } else if (deliveryMethod.value === 'pickmeFlash') {
+    deliveryFeeStr = 'රියදුරුට ගෙවන්න';
+  }
+
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#374151';
+  ctx.font = 'bold 18px "Noto Sans Sinhala", sans-serif';
+  ctx.fillText('📦 ලබාගැනීමේ ක්‍රමය: ' + deliveryLabel, 86, totalBoxY + 34);
+
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#111827';
+  ctx.font = 'bold 18px Outfit, "Noto Sans Sinhala", sans-serif';
+  ctx.fillText(deliveryFeeStr + (deliveryMethod.value === 'courier' ? ` (මුළු බර: ${parcelWeightKg.value.toFixed(2)} kg)` : ''), 1115, totalBoxY + 34);
+
+  // Grand Total Highlight Banner
+  const totalBannerY = totalBoxY + 58;
+  const totalGrad = ctx.createLinearGradient(76, totalBannerY, 1124, totalBannerY + 98);
+  totalGrad.addColorStop(0, '#e6f4f1');
+  totalGrad.addColorStop(1, '#ecfdf5');
+  drawCanvasRoundedRect(ctx, 76, totalBannerY, 1048, 98, 16, totalGrad, '#0f766e', 2);
+
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#111827';
+  ctx.font = 'bold 22px "Noto Sans Sinhala", sans-serif';
+  ctx.fillText('ගෙවිය යුතු මුළු මුදල (Grand Total):', 102, totalBannerY + 36);
+
+  ctx.fillStyle = '#4b5563';
+  ctx.font = '500 16px "Noto Sans Sinhala", Outfit, sans-serif';
+  ctx.fillText(`(පොත් සඳහා රු. ${totalBookCost.value.toLocaleString()} + Courier)`, 102, totalBannerY + 68);
+
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#0f766e';
+  ctx.font = 'bold 46px Outfit, sans-serif';
+  ctx.fillText(`රු. ${totalCost.value.toLocaleString()}`, 1100, totalBannerY + 50);
+
+  // 6. Section 3: Bank Details Card
+  const bankBoxY = totalBoxY + totalBoxH + 18;
+  const bankBoxH = 310;
+
+  if (deliveryMethod.value !== 'pickup') {
+    drawCanvasRoundedRect(ctx, 60, bankBoxY, 1080, bankBoxH, 20, '#f8fafc', '#cbd5e1', 1.5);
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#0f766e';
+    ctx.font = 'bold 21px "Noto Sans Sinhala", sans-serif';
+    ctx.fillText('🏛️ බැංකු තැන්පතු විස්තර (Bank Transfer)', 86, bankBoxY + 36);
+
+    // COD badge (wide pill with zero clipping)
+    drawCanvasRoundedRect(ctx, 880, bankBoxY + 18, 235, 38, 10, '#fef2f2', '#fecaca', 1.5);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#991b1b';
+    ctx.font = 'bold 15px "Noto Sans Sinhala", sans-serif';
+    ctx.fillText('COD නොමැත (කලින් ගෙවීම)', 997, bankBoxY + 37);
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '18px "Noto Sans Sinhala", sans-serif';
+    ctx.fillText('බැංකුව (Bank):', 86, bankBoxY + 86);
+    ctx.fillStyle = '#111827';
+    ctx.font = 'bold 18px "Noto Sans Sinhala", Outfit, sans-serif';
+    ctx.fillText(CONFIG.payment.bankTransfer.bankName, 240, bankBoxY + 86);
+
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '18px "Noto Sans Sinhala", sans-serif';
+    ctx.fillText('ශාඛාව (Branch):', 86, bankBoxY + 126);
+    ctx.fillStyle = '#111827';
+    ctx.font = 'bold 18px "Noto Sans Sinhala", Outfit, sans-serif';
+    ctx.fillText(CONFIG.payment.bankTransfer.branch, 240, bankBoxY + 126);
+
+    // VIP Account Number highlight box
+    const accBoxY = bankBoxY + 154;
+    drawCanvasRoundedRect(ctx, 76, accBoxY, 1048, 72, 14, '#ecfdf5', '#10b981', 2);
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#065f46';
+    ctx.font = 'bold 19px "Noto Sans Sinhala", sans-serif';
+    ctx.fillText('ගිණුම් අංකය (Account Number):', 102, accBoxY + 36);
+
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#064e3b';
+    ctx.font = 'bold 34px Outfit, monospace, sans-serif';
+    ctx.fillText('8029 9094 89', 1100, accBoxY + 36);
+
+    // Account Name
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '18px "Noto Sans Sinhala", sans-serif';
+    ctx.fillText('ගිණුම් හිමියා (Account Name):', 86, bankBoxY + 266);
+
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#111827';
+    ctx.font = 'bold 22px Outfit, sans-serif';
+    ctx.fillText(CONFIG.payment.bankTransfer.accountName, 1115, bankBoxY + 266);
+  } else {
+    // Pickup Details
+    drawCanvasRoundedRect(ctx, 60, bankBoxY, 1080, bankBoxH, 20, '#f8fafc', '#cbd5e1', 1.5);
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#0f766e';
+    ctx.font = 'bold 21px "Noto Sans Sinhala", sans-serif';
+    ctx.fillText('🚶 පැමිණ ලබා ගැනීමේ විස්තර (Pickup Location)', 86, bankBoxY + 36);
+
+    ctx.fillStyle = '#374151';
+    ctx.font = 'bold 20px "Noto Sans Sinhala", Outfit, sans-serif';
+    ctx.fillText('ස්ථානය: ' + CONFIG.delivery.pickup.locationName, 86, bankBoxY + 90);
+
+    ctx.fillStyle = '#4b5563';
+    ctx.font = '18px "Noto Sans Sinhala", sans-serif';
+    ctx.fillText('ලිපිනය: 190 බස් මාර්ගයේ, පනාගොඩ පාසල් හන්දියෙන් රොමියෙල් මාවත', 86, bankBoxY + 135);
+    ctx.fillText('(මීටර් 50ක් පමණ ඉදිරියට එන විට වම් පසින් හමුවන දෙවන බොරළු පාර)', 86, bankBoxY + 170);
+
+    ctx.fillStyle = '#b45309';
+    ctx.font = 'bold 17px "Noto Sans Sinhala", sans-serif';
+    ctx.fillText('* පැමිණ මුදල් ගෙවා ලබාගත හැක (කලින් ගෙවීමකින් තොරව පොත් වෙන්කර තැබිය නොහැක).', 86, bankBoxY + 230);
+  }
+
+  // 7. Section 4: Notice & WhatsApp Banner
+  const noticeBoxY = bankBoxY + bankBoxH + 18;
+  const noticeBoxH = 205;
+  drawCanvasRoundedRect(ctx, 60, noticeBoxY, 1080, noticeBoxH, 20, '#fffbeb', '#fde68a', 1.5);
+
+  ctx.save();
+  ctx.beginPath();
+  if (typeof ctx.roundRect === 'function') {
+    ctx.roundRect(60, noticeBoxY, 8, noticeBoxH, [20, 0, 0, 20]);
+  } else {
+    ctx.rect(60, noticeBoxY, 8, noticeBoxH);
+  }
+  ctx.fillStyle = '#f59e0b';
+  ctx.fill();
+  ctx.restore();
+
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#92400e';
+  ctx.font = 'bold 18px "Noto Sans Sinhala", sans-serif';
+  ctx.fillText('⚠️ තැන්පතුව සිදු කළ පසු පහත විස්තර අප වෙත එවන්න:', 90, noticeBoxY + 36);
+
+  const itemY = noticeBoxY + 76;
+  drawCanvasRoundedRect(ctx, 86, itemY - 20, 320, 42, 8, '#fef3c7', null);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#78350f';
+  ctx.font = '600 16px "Noto Sans Sinhala", sans-serif';
+  ctx.fillText('🧾 Deposit Slip / Screenshot', 246, itemY);
+
+  drawCanvasRoundedRect(ctx, 426, itemY - 20, 340, 42, 8, '#fef3c7', null);
+  ctx.fillText('🔤 Name & Address (English)', 596, itemY);
+
+  drawCanvasRoundedRect(ctx, 786, itemY - 20, 320, 42, 8, '#fef3c7', null);
+  ctx.fillText('📞 Phone Number', 946, itemY);
+
+  const waBannerY = noticeBoxY + 124;
+  drawCanvasRoundedRect(ctx, 80, waBannerY, 1040, 60, 14, '#0f766e', null);
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 21px Outfit, "Noto Sans Sinhala", sans-serif';
+  ctx.fillText('💬 WhatsApp: 071 521 5866 වෙත විස්තර එවන්න', 600, waBannerY + 30);
+
+  // 8. Section 5: Card Footer
+  ctx.strokeStyle = '#e5e7eb';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(60, 1410);
+  ctx.lineTo(1140, 1410);
+  ctx.stroke();
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#9ca3af';
+  ctx.font = '500 16px Outfit, "Noto Sans Sinhala", sans-serif';
+  ctx.fillText('Path Nirvana • හෝමාගම • ධර්ම දාන පොත් සේවාව • pathnirvana.org', 600, 1442);
+}
+
+async function copyOrderScreenshot() {
+  if (buttonFeedback.value.screenshot === 'loading') return;
+  buttonFeedback.value.screenshot = 'loading';
+
+  try {
+    if (document.fonts && document.fonts.ready) {
+      await document.fonts.ready;
+    }
+
+    // Preload book cover thumbnails for high quality rendering
+    const bookCovers = {};
+    await Promise.all(CONFIG.books.map(async (b) => {
+      if (b.coverImage) {
+        const coverRel = b.coverImage.startsWith('./') ? b.coverImage.slice(2) : b.coverImage;
+        const src = new URL(coverRel, window.location.href).href;
+        const img = await preloadImage(src);
+        if (img) bookCovers[b.id] = img;
+      }
+    }));
+
+    const canvas = document.createElement('canvas');
+    const w = 1200;
+    const h = 1500; // Ultra-crisp high resolution 4:5 aspect ratio
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+
+    if (!ctx) {
+      throw new Error('Canvas context not available');
+    }
+
+    drawOrderSummaryOnCanvas(ctx, w, h, bookCovers);
+
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+    if (!blob) {
+      throw new Error('Canvas blob generation failed');
+    }
+
+    if (!navigator.clipboard || typeof ClipboardItem === 'undefined' || !navigator.clipboard.write) {
+      throw new Error('ClipboardItem write not supported in this browser');
+    }
+
+    await navigator.clipboard.write([
+      new ClipboardItem({ 'image/png': blob })
+    ]);
+
+    buttonFeedback.value.screenshot = 'success';
+  } catch (err) {
+    console.error('Failed to copy screenshot to clipboard:', err);
+    buttonFeedback.value.screenshot = 'error';
+  } finally {
+    setTimeout(() => {
+      buttonFeedback.value.screenshot = '';
+    }, 2500);
+  }
+}
 
 // -------------------------------------------------------------
 // Submission Handlers (WhatsApp & Email)
@@ -549,6 +1064,70 @@ function submitViaEmail() {
             <span>ගෙවිය යුතු මුළු මුදල:</span>
             <span class="text-primary text-base">රු. {{ totalCost }}</span>
           </div>
+        </div>
+
+        <!-- Action Buttons Row below Total -->
+        <div v-if="totalBooksCount >= 20" class="grid grid-cols-3 gap-2 pt-0.5">
+          <!-- Copy Button -->
+          <button 
+            type="button" 
+            @click="copyOrderSummaryText"
+            class="h-9 px-2 rounded-lg border border-border-primary bg-bg-secondary hover:bg-bg-tertiary text-text-primary text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-2xs"
+            title="Copy order details as text"
+          >
+            <span v-if="buttonFeedback.copy" class="text-emerald-600 font-bold flex items-center gap-1">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+              <span>Copied!</span>
+            </span>
+            <span v-else class="flex items-center gap-1">
+              <span>📋</span>
+              <span>Copy</span>
+            </span>
+          </button>
+
+          <!-- Share Button -->
+          <button 
+            type="button" 
+            @click="sharePageLink"
+            class="h-9 px-2 rounded-lg border border-border-primary bg-bg-secondary hover:bg-bg-tertiary text-text-primary text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-2xs"
+            title="Copy page link with query string"
+          >
+            <span v-if="buttonFeedback.share" class="text-emerald-600 font-bold flex items-center gap-1">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+              <span>Copied!</span>
+            </span>
+            <span v-else class="flex items-center gap-1">
+              <span>🔗</span>
+              <span>Share</span>
+            </span>
+          </button>
+
+          <!-- Screenshot Button -->
+          <button 
+            type="button" 
+            @click="copyOrderScreenshot"
+            class="h-9 px-2 rounded-lg border border-border-primary bg-bg-secondary hover:bg-bg-tertiary text-text-primary text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-2xs"
+            title="Copy screenshot image (4:5) to clipboard"
+          >
+            <span v-if="buttonFeedback.screenshot === 'loading'" class="text-primary font-bold flex items-center gap-1 text-[11px]">
+              <svg class="animate-spin w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+              </svg>
+              <span>Creating...</span>
+            </span>
+            <span v-else-if="buttonFeedback.screenshot === 'success'" class="text-emerald-600 font-bold flex items-center gap-1">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+              <span>Copied!</span>
+            </span>
+            <span v-else-if="buttonFeedback.screenshot === 'error'" class="text-red-600 font-bold flex items-center gap-1 text-[11px]">
+              <span>❌ Failed</span>
+            </span>
+            <span v-else class="flex items-center gap-1">
+              <span>📸</span>
+              <span>Screenshot</span>
+            </span>
+          </button>
         </div>
 
         <!-- Delivery Context Note -->
