@@ -2,6 +2,7 @@
 // You can easily change these values to update rates, bank details, or book details.
 
 export const CONFIG = {
+  minOrderBooks: 50,
   books: [
     {
       id: 'mindfulness',

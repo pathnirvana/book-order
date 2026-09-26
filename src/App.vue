@@ -3,6 +3,8 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { CONFIG } from './config';
 import { copyOrderCardScreenshot } from './services/orderCardGenerator';
 
+const MIN_ORDER_BOOKS = CONFIG.minOrderBooks || 50;
+
 // -------------------------------------------------------------
 // State Management & URL Query Initialization
 // -------------------------------------------------------------
@@ -221,7 +223,7 @@ const isPhoneInvalid = computed(() => {
 });
 
 const isFormInvalid = computed(() => {
-  return totalBooksCount.value < 20 || !!isNameInvalid.value || !!isAddressInvalid.value || !!isPhoneInvalid.value;
+  return totalBooksCount.value < MIN_ORDER_BOOKS || !!isNameInvalid.value || !!isAddressInvalid.value || !!isPhoneInvalid.value;
 });
 
 // -------------------------------------------------------------
@@ -456,8 +458,8 @@ const formattedOrderMessage = computed(() => {
 });
 
 function submitViaWhatsApp() {
-  if (totalBooksCount.value < 20) {
-    alert('ඇණවුම් කළ හැකි අවම මුළු පොත් සංඛ්‍යාව 20කි.');
+  if (totalBooksCount.value < MIN_ORDER_BOOKS) {
+    alert(`ඇණවුම් කළ හැකි අවම මුළු පොත් සංඛ්‍යාව ${MIN_ORDER_BOOKS}කි.`);
     return;
   }
 
@@ -476,8 +478,8 @@ function submitViaWhatsApp() {
 }
 
 function submitViaEmail() {
-  if (totalBooksCount.value < 20) {
-    alert('ඇණවුම් කළ හැකි අවම මුළු පොත් සංඛ්‍යාව 20කි.');
+  if (totalBooksCount.value < MIN_ORDER_BOOKS) {
+    alert(`ඇණවුම් කළ හැකි අවම මුළු පොත් සංඛ්‍යාව ${MIN_ORDER_BOOKS}කි.`);
     return;
   }
 
@@ -593,10 +595,10 @@ function submitViaEmail() {
           </div>
         </div>
 
-        <!-- Warning if less than 20 books selected -->
-        <p v-if="totalBooksCount < 20" class="text-xs text-amber-800 bg-amber-50 p-2.5 rounded-lg border border-amber-200 flex items-start gap-1.5">
+        <!-- Warning if less than min books selected -->
+        <p v-if="totalBooksCount < MIN_ORDER_BOOKS" class="text-xs text-amber-800 bg-amber-50 p-2.5 rounded-lg border border-amber-200 flex items-start gap-1.5">
           <span>⚠️</span>
-          <span>ඇණවුම් කළ හැකි අවම මුළු පොත් සංඛ්‍යාව 20කි. (දැනට තෝරාගෙන ඇත්තේ: <strong>{{ totalBooksCount }}</strong>)</span>
+          <span>ඇණවුම් කළ හැකි අවම මුළු පොත් සංඛ්‍යාව {{ MIN_ORDER_BOOKS }}කි. (දැනට තෝරාගෙන ඇත්තේ: <strong>{{ totalBooksCount }}</strong>)</span>
         </p>
 
         <!-- Delivery Method Radios -->
@@ -632,8 +634,8 @@ function submitViaEmail() {
           </div>
         </div>
 
-        <!-- Price Breakdown Box (hidden if less than 20 books) -->
-        <div v-if="totalBooksCount >= 20" class="bg-bg-primary/70 p-2.5 rounded-lg border border-border-primary space-y-1 text-xs">
+        <!-- Price Breakdown Box (hidden if less than min books) -->
+        <div v-if="totalBooksCount >= MIN_ORDER_BOOKS" class="bg-bg-primary/70 p-2.5 rounded-lg border border-border-primary space-y-1 text-xs">
           <div class="flex justify-between text-text-secondary">
             <span>
               පොත් සඳහා 
@@ -662,7 +664,7 @@ function submitViaEmail() {
         </div>
 
         <!-- Action Buttons Row below Total -->
-        <div v-if="totalBooksCount >= 20" class="grid grid-cols-3 gap-2 pt-0.5">
+        <div v-if="totalBooksCount >= MIN_ORDER_BOOKS" class="grid grid-cols-3 gap-2 pt-0.5">
           <!-- Copy Button -->
           <button 
             type="button" 
@@ -732,7 +734,7 @@ function submitViaEmail() {
         <!-- Delivery Context Note -->
         <div class="text-xs text-text-secondary leading-relaxed bg-primary-light/40 p-2.5 rounded-lg border border-primary/20">
           <template v-if="deliveryMethod === 'courier'">
-            📦 දිවයින පුරා දින 3-5 අතර ලැබේ (Tracking Number එකක් එවනු ලැබේ). <span class="font-semibold text-text-primary">COD නොමැත</span> - කලින් මුදල් තැන්පත් කළ යුතුය.
+            📦 දිවයින පුරා දින 3-10 අතර ලැබේ (Tracking Number එකක් එවනු ලැබේ). <span class="font-semibold text-text-primary">COD නොමැත</span> - කලින් මුදල් තැන්පත් කළ යුතුය.
           </template>
           <template v-else-if="deliveryMethod === 'pickmeFlash'">
             ⚡ හෝමාගම සිට {{ CONFIG.delivery.pickmeFlash.radiusLimitKm }}km සීමාව තුළ පමණි. පොත් මුදල බැංකුවට තැන්පත් කර, Delivery ගාස්තුව පැමිණෙන රියදුරුට ඍජුවම ගෙවන්න.
@@ -835,8 +837,8 @@ function submitViaEmail() {
         </div>
       </section>
 
-      <!-- Step 3: Bank Transfer Instructions (hidden for pickup or when books < 20) -->
-      <section v-if="deliveryMethod !== 'pickup' && totalBooksCount >= 20" class="bg-bg-secondary rounded-xl border border-border-primary p-3 sm:p-4 shadow-xs space-y-2">
+      <!-- Step 3: Bank Transfer Instructions (hidden for pickup or when books < min) -->
+      <section v-if="deliveryMethod !== 'pickup' && totalBooksCount >= MIN_ORDER_BOOKS" class="bg-bg-secondary rounded-xl border border-border-primary p-3 sm:p-4 shadow-xs space-y-2">
         <div class="flex items-center justify-between">
           <h2 class="text-sm font-bold text-text-primary">3. බැංකු තැන්පතු විස්තර</h2>
           <span class="text-[11px] text-red-700 bg-red-50 px-2 py-0.5 rounded border border-red-200 font-semibold">
@@ -922,7 +924,7 @@ function submitViaEmail() {
           <!-- WhatsApp Button -->
           <button 
             @click="submitViaWhatsApp"
-            :disabled="totalBooksCount < 20 || (isFormInvalid && (nameTouched || addressTouched || phoneTouched))"
+            :disabled="totalBooksCount < MIN_ORDER_BOOKS || (isFormInvalid && (nameTouched || addressTouched || phoneTouched))"
             class="w-full h-11 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-xs disabled:opacity-50 disabled:cursor-not-allowed transform active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
             <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24">
@@ -934,7 +936,7 @@ function submitViaEmail() {
           <!-- Email Button -->
           <button 
             @click="submitViaEmail"
-            :disabled="totalBooksCount < 20 || (isFormInvalid && (nameTouched || addressTouched || phoneTouched))"
+            :disabled="totalBooksCount < MIN_ORDER_BOOKS || (isFormInvalid && (nameTouched || addressTouched || phoneTouched))"
             class="w-full h-11 px-4 rounded-lg bg-primary hover:bg-primary-hover text-white font-bold text-sm shadow-xs disabled:opacity-50 disabled:cursor-not-allowed transform active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
