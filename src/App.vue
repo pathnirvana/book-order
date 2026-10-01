@@ -93,6 +93,10 @@ function closeBookModal() {
   selectedBookForModal.value = null;
 }
 
+function setQty(bookId, qty) {
+  quantities.value[bookId] = qty;
+}
+
 function incrementQty(bookId) {
   const current = Number(quantities.value[bookId]) || 0;
   quantities.value[bookId] = current + 1;
@@ -222,8 +226,29 @@ const isPhoneInvalid = computed(() => {
   return '';
 });
 
+// Below the minimum, only pickup is offered (courier / PickMe need MIN_ORDER_BOOKS)
+const isBelowMin = computed(() => totalBooksCount.value < MIN_ORDER_BOOKS);
+const canOrder = computed(() => totalBooksCount.value > 0 && (deliveryMethod.value === 'pickup' || !isBelowMin.value));
+
+// Auto-switch to pickup when the order drops below the minimum, and restore the
+// previous choice once it is back above (unless the user picked a method meanwhile)
+let methodBeforeAutoPickup = null;
+watch(totalBooksCount, (count) => {
+  if (count < MIN_ORDER_BOOKS && deliveryMethod.value !== 'pickup') {
+    methodBeforeAutoPickup = deliveryMethod.value;
+    deliveryMethod.value = 'pickup';
+  } else if (count >= MIN_ORDER_BOOKS && methodBeforeAutoPickup) {
+    deliveryMethod.value = methodBeforeAutoPickup;
+    methodBeforeAutoPickup = null;
+  }
+}, { immediate: true });
+
+function onMethodPicked() {
+  methodBeforeAutoPickup = null;
+}
+
 const isFormInvalid = computed(() => {
-  return totalBooksCount.value < MIN_ORDER_BOOKS || !!isNameInvalid.value || !!isAddressInvalid.value || !!isPhoneInvalid.value;
+  return !canOrder.value || !!isNameInvalid.value || !!isAddressInvalid.value || !!isPhoneInvalid.value;
 });
 
 // -------------------------------------------------------------
@@ -298,6 +323,8 @@ const totalCost = computed(() => {
   return rawTotalCost.value;
 });
 
+const roundingAdjustment = computed(() => totalCost.value - rawTotalCost.value);
+
 // -------------------------------------------------------------
 // Copy Helper
 // -------------------------------------------------------------
@@ -329,13 +356,16 @@ function copyOrderSummaryText() {
     pickmeFlash: 'PickMe Flash',
     pickup: 'පැමිණ ලබා ගැනීම',
   };
-  lines.push(`ක්රමය: ${deliveryNames[deliveryMethod.value] || deliveryMethod.value}`);
+  lines.push(`ක්‍රමය: ${deliveryNames[deliveryMethod.value] || deliveryMethod.value}`);
 
   lines.push(`පොත්: රු. ${totalBookCost.value} (${bookCostFormulaText.value})`);
   if (deliveryMethod.value === 'courier') {
     lines.push(`Courier: රු. ${deliveryCost.value}`);
   } else if (deliveryMethod.value === 'pickmeFlash') {
-    lines.push(`Courier: රියදුරුට ගෙවන්න`);
+    lines.push(`PickMe Flash: රියදුරුට ගෙවන්න`);
+  }
+  if (roundingAdjustment.value > 0) {
+    lines.push(`වටයීම (Rounding): රු. ${roundingAdjustment.value}`);
   }
   lines.push(`මුළු මුදල: රු. ${totalCost.value}`);
 
@@ -392,8 +422,11 @@ async function copyOrderScreenshot() {
       booksCost: totalBookCost.value,
       deliveryMethod: deliveryMethod.value,
       deliveryCost: deliveryCost.value,
+      roundingAdjustment: roundingAdjustment.value,
+      parcelWeightKg: parcelWeightKg.value,
       totalCost: totalCost.value,
       bankInfo: CONFIG.payment.bankTransfer,
+      lankaQrImage: CONFIG.payment.lankaQrImage,
       contactInfo: CONFIG.contact
     };
 
@@ -458,8 +491,10 @@ const formattedOrderMessage = computed(() => {
 });
 
 function submitViaWhatsApp() {
-  if (totalBooksCount.value < MIN_ORDER_BOOKS) {
-    alert(`ඇණවුම් කළ හැකි අවම මුළු පොත් සංඛ්‍යාව ${MIN_ORDER_BOOKS}කි.`);
+  if (!canOrder.value) {
+    alert(totalBooksCount.value === 0
+      ? 'කරුණාකර පොත් ප්‍රමාණය තෝරන්න.'
+      : `පොත් ${MIN_ORDER_BOOKS}ට අඩු ඇණවුම් පැමිණ ලබා ගැනීම සඳහා පමණි.`);
     return;
   }
 
@@ -478,8 +513,10 @@ function submitViaWhatsApp() {
 }
 
 function submitViaEmail() {
-  if (totalBooksCount.value < MIN_ORDER_BOOKS) {
-    alert(`ඇණවුම් කළ හැකි අවම මුළු පොත් සංඛ්‍යාව ${MIN_ORDER_BOOKS}කි.`);
+  if (!canOrder.value) {
+    alert(totalBooksCount.value === 0
+      ? 'කරුණාකර පොත් ප්‍රමාණය තෝරන්න.'
+      : `පොත් ${MIN_ORDER_BOOKS}ට අඩු ඇණවුම් පැමිණ ලබා ගැනීම සඳහා පමණි.`);
     return;
   }
 
@@ -525,80 +562,102 @@ function submitViaEmail() {
           <div 
             v-for="book in CONFIG.books" 
             :key="book.id"
-            class="p-2.5 sm:p-3 rounded-xl border border-border-primary bg-bg-primary/40 hover:bg-bg-primary/60 transition-all flex items-center gap-2.5 sm:gap-3"
+            class="p-2.5 sm:p-3 rounded-xl border border-border-primary bg-bg-primary/40 hover:bg-bg-primary/60 transition-all space-y-2"
           >
-            <!-- Thumbnail (Clickable to open dialog) -->
-            <img 
-              :src="book.coverImage" 
-              :alt="book.titleSinhala"
-              class="w-11 sm:w-12 h-15 sm:h-16 object-cover rounded shadow-xs border border-border-primary shrink-0 cursor-pointer hover:opacity-90 active:scale-95 transition-all"
-              @click="openBookModal(book)"
-              title="විස්තර බලන්න"
-            />
-
-            <!-- Book Info & Details Button -->
-            <div class="min-w-0 flex-1">
-              <h3 class="text-xs sm:text-sm font-bold text-text-primary leading-tight line-clamp-1">
-                {{ book.titleSinhala }}
-              </h3>
-              <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-text-secondary mt-0.5">
-                <span class="font-bold text-primary">රු. {{ book.costLkr }}</span>
-                <span>•</span>
-                <span>{{ book.weightGrams }}g</span>
-                <span>•</span>
-                <span>පිටු {{ book.pages }}</span>
-                <span v-if="book.inStock === false" class="text-[10px] text-amber-800 bg-amber-100/90 px-1.5 py-0.2 rounded font-medium">
-                  තවමත් නැත
-                </span>
-              </div>
-
-              <!-- Button to open popup modal dialog -->
-              <button 
-                type="button"
+            <div class="flex items-start gap-2.5 sm:gap-3">
+              <!-- Thumbnail (Clickable to open dialog) -->
+              <img 
+                :src="book.coverImage" 
+                :alt="book.titleSinhala"
+                class="w-11 sm:w-12 h-15 sm:h-16 object-cover rounded shadow-xs border border-border-primary shrink-0 cursor-pointer hover:opacity-90 active:scale-95 transition-all"
                 @click="openBookModal(book)"
-                class="text-[11px] text-primary hover:underline font-semibold inline-flex items-center gap-1 mt-1 cursor-pointer"
-              >
-                <span>ℹ️ විස්තර බලන්න (Info)</span>
-              </button>
+                title="විස්තර බලන්න"
+              />
+
+              <!-- Book Info & Details Button -->
+              <div class="min-w-0 flex-1">
+                <h3 class="text-sm font-bold text-text-primary leading-snug">
+                  {{ book.titleSinhala }}
+                </h3>
+                <div class="flex flex-wrap items-center gap-1.5 text-xs text-text-secondary mt-0.5">
+                  <span class="font-bold text-primary">රු. {{ book.costLkr }}</span>
+                  <span>•</span>
+                  <span>{{ book.weightGrams }}g</span>
+                  <span>•</span>
+                  <span>පිටු {{ book.pages }}</span>
+                  <span v-if="book.inStock === false" class="text-[11px] text-amber-800 bg-amber-100/90 px-1.5 py-0.2 rounded font-medium">
+                    තවමත් නැත
+                  </span>
+                </div>
+
+                <!-- Button to open popup modal dialog -->
+                <button 
+                  type="button"
+                  @click="openBookModal(book)"
+                  class="text-xs text-primary hover:underline font-semibold inline-flex items-center gap-1 mt-1 cursor-pointer"
+                >
+                  <span>ℹ️ විස්තර බලන්න (Info)</span>
+                </button>
+              </div>
             </div>
 
-            <!-- Stepper Controls -->
-            <div class="flex items-center space-x-1.5 shrink-0">
-              <button 
-                type="button"
-                @click="decrementQty(book.id)"
-                class="w-8 h-8 rounded-lg border border-border-primary bg-bg-secondary hover:bg-bg-tertiary text-text-primary font-bold text-base flex items-center justify-center active:scale-95 transition-all"
-                aria-label="Decrease quantity"
-              >
-                −
-              </button>
-              <input 
-                type="text"
-                inputmode="numeric"
-                pattern="[0-9]*"
-                :value="quantities[book.id]"
-                @keydown="onQtyKeydown"
-                @input="onQtyInput(book.id, $event)"
-                @paste="onQtyPaste"
-                @blur="onQtyBlur(book.id, $event)"
-                class="w-12 sm:w-14 h-8 rounded-lg border border-border-primary text-center font-bold text-xs sm:text-sm text-text-primary bg-bg-secondary focus:outline-hidden focus:border-primary"
-              />
-              <button 
-                type="button"
-                @click="incrementQty(book.id)"
-                class="w-8 h-8 rounded-lg border border-border-primary bg-bg-secondary hover:bg-bg-tertiary text-text-primary font-bold text-base flex items-center justify-center active:scale-95 transition-all"
-                aria-label="Increase quantity"
-              >
-                +
-              </button>
+            <div class="flex items-center justify-between gap-2">
+              <!-- Quick Quantity Buttons -->
+              <div class="flex items-center gap-1">
+                <button 
+                  v-for="q in CONFIG.quickQuantities"
+                  :key="q"
+                  type="button"
+                  @click="setQty(book.id, q)"
+                  :class="['h-8 min-w-9 px-1.5 rounded-lg border text-xs font-bold active:scale-95 transition-all cursor-pointer',
+                    Number(quantities[book.id]) === q ? 'border-primary bg-primary text-white' : 'border-border-primary bg-bg-secondary text-text-primary hover:bg-bg-tertiary']"
+                >
+                  {{ q }}
+                </button>
+              </div>
+
+              <!-- Stepper Controls -->
+              <div class="flex items-center space-x-1.5 shrink-0">
+                <button 
+                  type="button"
+                  @click="decrementQty(book.id)"
+                  class="w-8 h-8 rounded-lg border border-border-primary bg-bg-secondary hover:bg-bg-tertiary text-text-primary font-bold text-base flex items-center justify-center active:scale-95 transition-all"
+                  aria-label="Decrease quantity"
+                >
+                  −
+                </button>
+                <input 
+                  type="text"
+                  inputmode="numeric"
+                  pattern="[0-9]*"
+                  :value="quantities[book.id]"
+                  @keydown="onQtyKeydown"
+                  @input="onQtyInput(book.id, $event)"
+                  @paste="onQtyPaste"
+                  @blur="onQtyBlur(book.id, $event)"
+                  class="w-12 sm:w-14 h-8 rounded-lg border border-border-primary text-center font-bold text-sm text-text-primary bg-bg-secondary focus:outline-hidden focus:border-primary"
+                />
+                <button 
+                  type="button"
+                  @click="incrementQty(book.id)"
+                  class="w-8 h-8 rounded-lg border border-border-primary bg-bg-secondary hover:bg-bg-tertiary text-text-primary font-bold text-base flex items-center justify-center active:scale-95 transition-all"
+                  aria-label="Increase quantity"
+                >
+                  +
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
         <!-- Warning if less than min books selected -->
-        <p v-if="totalBooksCount < MIN_ORDER_BOOKS" class="text-xs text-amber-800 bg-amber-50 p-2.5 rounded-lg border border-amber-200 flex items-start gap-1.5">
+        <p v-if="totalBooksCount === 0" class="text-xs text-amber-800 bg-amber-50 p-2.5 rounded-lg border border-amber-200 flex items-start gap-1.5">
           <span>⚠️</span>
-          <span>ඇණවුම් කළ හැකි අවම මුළු පොත් සංඛ්‍යාව {{ MIN_ORDER_BOOKS }}කි. (දැනට තෝරාගෙන ඇත්තේ: <strong>{{ totalBooksCount }}</strong>)</span>
+          <span>කරුණාකර පොත් ප්‍රමාණය තෝරන්න.</span>
+        </p>
+        <p v-else-if="isBelowMin" class="text-xs text-amber-800 bg-amber-50 p-2.5 rounded-lg border border-amber-200 flex items-start gap-1.5">
+          <span>ℹ️</span>
+          <span>පොත් {{ MIN_ORDER_BOOKS }}ට අඩු ඇණවුම් <strong>පැමිණ ලබා ගැනීම</strong> සඳහා පමණි. කූරියර් / PickMe සඳහා තව පොත් <strong>{{ MIN_ORDER_BOOKS - totalBooksCount }}</strong>ක් එක් කරන්න.</span>
         </p>
 
         <!-- Delivery Method Radios -->
@@ -607,20 +666,24 @@ function submitViaEmail() {
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <!-- Courier -->
             <label 
-              :class="['p-2.5 rounded-lg border flex items-center justify-center text-center cursor-pointer transition-all', 
-                deliveryMethod === 'courier' ? 'border-primary bg-primary-light/50 ring-1 ring-primary' : 'border-border-primary hover:bg-bg-tertiary/40']"
+              :class="['p-2.5 rounded-lg border flex items-center justify-center gap-1.5 text-center transition-all', 
+                isBelowMin ? 'border-border-primary opacity-50 cursor-not-allowed' :
+                deliveryMethod === 'courier' ? 'border-primary bg-primary-light/50 ring-1 ring-primary cursor-pointer' : 'border-border-primary hover:bg-bg-tertiary/40 cursor-pointer']"
             >
-              <input type="radio" v-model="deliveryMethod" value="courier" class="sr-only" />
+              <input type="radio" v-model="deliveryMethod" value="courier" :disabled="isBelowMin" @change="onMethodPicked" class="sr-only" />
               <span class="text-xs font-bold text-text-primary">📦 කූරියර් Courier</span>
+              <span v-if="isBelowMin" class="text-[11px] text-text-secondary">(පොත් {{ MIN_ORDER_BOOKS }}+)</span>
             </label>
 
             <!-- PickMe Flash -->
             <label 
-              :class="['p-2.5 rounded-lg border flex items-center justify-center text-center cursor-pointer transition-all', 
-                deliveryMethod === 'pickmeFlash' ? 'border-primary bg-primary-light/50 ring-1 ring-primary' : 'border-border-primary hover:bg-bg-tertiary/40']"
+              :class="['p-2.5 rounded-lg border flex items-center justify-center gap-1.5 text-center transition-all', 
+                isBelowMin ? 'border-border-primary opacity-50 cursor-not-allowed' :
+                deliveryMethod === 'pickmeFlash' ? 'border-primary bg-primary-light/50 ring-1 ring-primary cursor-pointer' : 'border-border-primary hover:bg-bg-tertiary/40 cursor-pointer']"
             >
-              <input type="radio" v-model="deliveryMethod" value="pickmeFlash" class="sr-only" />
+              <input type="radio" v-model="deliveryMethod" value="pickmeFlash" :disabled="isBelowMin" @change="onMethodPicked" class="sr-only" />
               <span class="text-xs font-bold text-text-primary">⚡ PickMe Flash</span>
+              <span v-if="isBelowMin" class="text-[11px] text-text-secondary">(පොත් {{ MIN_ORDER_BOOKS }}+)</span>
             </label>
 
             <!-- Pickup -->
@@ -628,14 +691,14 @@ function submitViaEmail() {
               :class="['p-2.5 rounded-lg border flex items-center justify-center text-center cursor-pointer transition-all', 
                 deliveryMethod === 'pickup' ? 'border-primary bg-primary-light/50 ring-1 ring-primary' : 'border-border-primary hover:bg-bg-tertiary/40']"
             >
-              <input type="radio" v-model="deliveryMethod" value="pickup" class="sr-only" />
+              <input type="radio" v-model="deliveryMethod" value="pickup" @change="onMethodPicked" class="sr-only" />
               <span class="text-xs font-bold text-text-primary">🚶 පැමිණ ලබා ගැනීම</span>
             </label>
           </div>
         </div>
 
         <!-- Price Breakdown Box (hidden if less than min books) -->
-        <div v-if="totalBooksCount >= MIN_ORDER_BOOKS" class="bg-bg-primary/70 p-2.5 rounded-lg border border-border-primary space-y-1 text-xs">
+        <div v-if="canOrder" class="bg-bg-primary/70 p-2.5 rounded-lg border border-border-primary space-y-1 text-xs">
           <div class="flex justify-between text-text-secondary">
             <span>
               පොත් සඳහා 
@@ -646,16 +709,20 @@ function submitViaEmail() {
             <span class="text-text-primary font-medium">රු. {{ totalBookCost }}</span>
           </div>
           <div class="flex justify-between text-text-secondary">
-            <span>Courier ගාස්තුව:</span>
+            <span>{{ deliveryMethod === 'pickmeFlash' ? 'PickMe Flash ගාස්තුව:' : deliveryMethod === 'pickup' ? 'ලබා ගැනීම:' : 'Courier ගාස්තුව:' }}</span>
             <span class="text-text-primary font-medium">
               <span v-if="deliveryMethod === 'courier'">රු. {{ deliveryCost }}</span>
               <span v-else-if="deliveryMethod === 'pickmeFlash'" class="text-amber-700 font-semibold">රියදුරුට ගෙවන්න</span>
-              <span v-else class="text-emerald-700 font-semibold">රු. 0</span>
+              <span v-else class="text-emerald-700 font-semibold">නොමිලේ (Free)</span>
             </span>
           </div>
           <div v-if="deliveryMethod === 'courier'" class="flex justify-between text-text-secondary text-[11px]">
             <span>මුළු බර:</span>
             <span>{{ parcelWeightKg.toFixed(2) }} kg</span>
+          </div>
+          <div v-if="roundingAdjustment > 0" class="flex justify-between text-text-secondary text-[11px]">
+            <span>වටයීම (Rounding):</span>
+            <span>+ රු. {{ roundingAdjustment }}</span>
           </div>
           <div class="flex justify-between items-center text-text-primary pt-1.5 border-t border-border-primary font-bold text-sm">
             <span>ගෙවිය යුතු මුළු මුදල:</span>
@@ -664,7 +731,7 @@ function submitViaEmail() {
         </div>
 
         <!-- Action Buttons Row below Total -->
-        <div v-if="totalBooksCount >= MIN_ORDER_BOOKS" class="grid grid-cols-3 gap-2 pt-0.5">
+        <div v-if="canOrder" class="grid grid-cols-3 gap-2 pt-0.5">
           <!-- Copy Button -->
           <button 
             type="button" 
@@ -838,7 +905,7 @@ function submitViaEmail() {
       </section>
 
       <!-- Step 3: Bank Transfer Instructions (hidden for pickup or when books < min) -->
-      <section v-if="deliveryMethod !== 'pickup' && totalBooksCount >= MIN_ORDER_BOOKS" class="bg-bg-secondary rounded-xl border border-border-primary p-3 sm:p-4 shadow-xs space-y-2">
+      <section v-if="deliveryMethod !== 'pickup' && canOrder" class="bg-bg-secondary rounded-xl border border-border-primary p-3 sm:p-4 shadow-xs space-y-2">
         <div class="flex items-center justify-between">
           <h2 class="text-sm font-bold text-text-primary">3. බැංකු තැන්පතු විස්තර</h2>
           <span class="text-[11px] text-red-700 bg-red-50 px-2 py-0.5 rounded border border-red-200 font-semibold">
@@ -924,7 +991,7 @@ function submitViaEmail() {
           <!-- WhatsApp Button -->
           <button 
             @click="submitViaWhatsApp"
-            :disabled="totalBooksCount < MIN_ORDER_BOOKS || (isFormInvalid && (nameTouched || addressTouched || phoneTouched))"
+            :disabled="!canOrder || (isFormInvalid && (nameTouched || addressTouched || phoneTouched))"
             class="w-full h-11 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-xs disabled:opacity-50 disabled:cursor-not-allowed transform active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
             <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24">
@@ -936,7 +1003,7 @@ function submitViaEmail() {
           <!-- Email Button -->
           <button 
             @click="submitViaEmail"
-            :disabled="totalBooksCount < MIN_ORDER_BOOKS || (isFormInvalid && (nameTouched || addressTouched || phoneTouched))"
+            :disabled="!canOrder || (isFormInvalid && (nameTouched || addressTouched || phoneTouched))"
             class="w-full h-11 px-4 rounded-lg bg-primary hover:bg-primary-hover text-white font-bold text-sm shadow-xs disabled:opacity-50 disabled:cursor-not-allowed transform active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">

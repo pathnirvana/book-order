@@ -1,10 +1,75 @@
 /**
- * Buddhist Aesthetic Executive Order Card Generator
- * High-resolution (1200x1500, 4:5 aspect ratio) Canvas 2D image generator
- * Designed for Path Nirvana Book Order Service
+ * Path Nirvana Order Card Generator
+ * Draws the order summary image (1080px wide, height fits the content) with the
+ * Canvas 2D API, rendered at 2x for crisp text and a scannable LankaQR code.
+ * Layout: hero (headline + covers) → receipt → bank + LankaQR → steps → WhatsApp → footer
  */
 
 import { ICONS } from './cardIcons.js';
+
+const W = 1080;
+const PAD = 56;
+const INNER = W - PAD * 2;
+const SCALE = 2;
+
+const SANS = 'Outfit, "Noto Sans Sinhala", sans-serif';
+const SINHALA = '"Noto Sans Sinhala", Outfit, sans-serif';
+const SERIF = '"Noto Serif Sinhala", "Noto Sans Sinhala", serif';
+
+const COLORS = {
+  pine: '#0a3d35',
+  pineDeep: '#06261f',
+  pineLight: '#16695b',
+  gold: '#b8862b',
+  goldLight: '#f3d27a',
+  cream: '#f6efe2',
+  paper: '#fffdf8',
+  line: '#e7dcc6',
+  dash: '#e2d6bd',
+  ink: '#1d2a26',
+  text: '#3a4743',
+  muted: '#8a8f88',
+  red: '#b3261e',
+  whatsapp: '#1fa855',
+};
+
+// Fonts the card uses; loaded explicitly because the page itself may not use them yet
+const FONT_SPECS = [
+  `700 60px ${SERIF}`, `600 22px ${SERIF}`,
+  `800 64px ${SANS}`, `700 30px ${SANS}`, `600 22px ${SANS}`, `500 16px ${SANS}`,
+  `400 22px ${SINHALA}`, `700 24px ${SINHALA}`, `500 18px ${SINHALA}`,
+];
+
+// Vertical layout (logical px)
+const HERO_H = 430;
+const RECEIPT_PAD = 26;
+const ROW_H = 50;
+const SEP_H = 22;
+const TOTAL_H = 90;
+const PAY_H = 250;
+const QR_TILE_W = 250;
+const STEPS_H = 56;
+const WA_H = 92;
+const FOOTER_H = 60;
+const GAP = 24;
+
+const DELIVERY_STEPS = {
+  courier: [
+    ['මුදල් තැන්පත් කරන්න', 'ගිණුමට හෝ LankaQR'],
+    ['Slip එක එවන්න', 'WhatsApp මඟින්'],
+    ['Name, Address, Phone', 'English වලින්'],
+  ],
+  pickmeFlash: [
+    ['පොත් මුදල ගෙවන්න', 'ගිණුමට හෝ LankaQR'],
+    ['Slip, ලිපිනය එවන්න', 'WhatsApp මඟින්'],
+    ['Delivery ගාස්තුව', 'රියදුරුට ගෙවන්න'],
+  ],
+  pickup: [
+    ['කලින් ගෙවන්න', 'හෝ පැමිණ ගෙවන්න'],
+    ['Slip එක එවන්න', 'WhatsApp මඟින්'],
+    ['පැමිණ ලබා ගන්න', 'Path Nirvana හෝමාගම'],
+  ],
+};
 
 /**
  * Preloads an image safely without tainting canvas
@@ -14,971 +79,511 @@ export function preloadImage(src) {
     if (!src) return resolve(null);
     const img = new Image();
     img.onload = () => resolve(img);
-    img.onerror = () => {
-      // If error occurs, try fetching as blob
-      if (src.startsWith('data:')) {
-        resolve(null);
-        return;
-      }
-      fetch(src)
-        .then((res) => {
-          if (!res.ok) throw new Error('Fetch failed');
-          return res.blob();
-        })
-        .then((blob) => {
-          const blobUrl = URL.createObjectURL(blob);
-          const fbImg = new Image();
-          fbImg.onload = () => {
-            URL.revokeObjectURL(blobUrl);
-            resolve(fbImg);
-          };
-          fbImg.onerror = () => {
-            URL.revokeObjectURL(blobUrl);
-            resolve(null);
-          };
-          fbImg.src = blobUrl;
-        })
-        .catch(() => resolve(null));
-    };
+    img.onerror = () => resolve(null);
     img.src = src;
   });
 }
 
-/**
- * Utility: Draws a rounded rectangle path
- */
-export function drawCanvasRoundedRect(ctx, x, y, width, height, radius, fillStyle, strokeStyle, lineWidth = 1) {
-  ctx.save();
+function roundedRectPath(ctx, x, y, w, h, r) {
   ctx.beginPath();
   if (typeof ctx.roundRect === 'function') {
-    ctx.roundRect(x, y, width, height, radius);
+    ctx.roundRect(x, y, w, h, r);
   } else {
-    const r = typeof radius === 'number' ? radius : 8;
     ctx.moveTo(x + r, y);
-    ctx.lineTo(x + width - r, y);
-    ctx.arcTo(x + width, y, x + width, y + r, r);
-    ctx.lineTo(x + width, y + height - r);
-    ctx.arcTo(x + width, y + height, x + width - r, y + height, r);
-    ctx.lineTo(x + r, y + height);
-    ctx.arcTo(x, y + height, x, y + height - r, r);
-    ctx.lineTo(x, y + r);
-    ctx.arcTo(x, y, x + r, y, r);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
     ctx.closePath();
   }
-  if (fillStyle) {
-    ctx.fillStyle = fillStyle;
+}
+
+function fillRoundedRect(ctx, x, y, w, h, r, fill, stroke, lineWidth = 1) {
+  ctx.save();
+  roundedRectPath(ctx, x, y, w, h, r);
+  if (fill) {
+    ctx.fillStyle = fill;
     ctx.fill();
   }
-  if (strokeStyle) {
-    ctx.strokeStyle = strokeStyle;
+  if (stroke) {
+    ctx.strokeStyle = stroke;
     ctx.lineWidth = lineWidth;
     ctx.stroke();
   }
   ctx.restore();
 }
 
-/**
- * Utility: Draws an image inside a rounded clipping mask
- */
-export function drawRoundedImage(ctx, img, x, y, width, height, radius) {
-  if (!img) return;
-  ctx.save();
-  ctx.beginPath();
-  if (typeof ctx.roundRect === 'function') {
-    ctx.roundRect(x, y, width, height, radius);
-  } else {
-    ctx.rect(x, y, width, height);
+function setFont(ctx, weight, size, family = SANS) {
+  ctx.font = `${weight} ${size}px ${family}`;
+}
+
+/** Largest font size (down to minSize) at which text fits maxWidth */
+function fitFontSize(ctx, text, maxWidth, weight, size, family, minSize) {
+  let s = size;
+  setFont(ctx, weight, s, family);
+  while (s > minSize && ctx.measureText(text).width > maxWidth) {
+    s -= 1;
+    setFont(ctx, weight, s, family);
   }
-  ctx.clip();
-  ctx.drawImage(img, x, y, width, height);
-  ctx.restore();
+  return s;
+}
 
-  // Subtle border around thumbnail
-  ctx.save();
-  ctx.beginPath();
-  if (typeof ctx.roundRect === 'function') {
-    ctx.roundRect(x, y, width, height, radius);
-  } else {
-    ctx.rect(x, y, width, height);
+/** Truncates text with an ellipsis to fit maxWidth using the current font */
+function ellipsize(ctx, text, maxWidth) {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  let t = text;
+  while (t.length > 1 && ctx.measureText(t + '…').width > maxWidth) t = t.slice(0, -1);
+  return t + '…';
+}
+
+/** Draws text with manual letter spacing (canvas letterSpacing is not universal) */
+function drawSpacedText(ctx, text, x, y, spacing) {
+  let cx = x;
+  for (const ch of text) {
+    ctx.fillText(ch, cx, y);
+    cx += ctx.measureText(ch).width + spacing;
   }
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.12)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  ctx.restore();
+  return cx - spacing - x;
 }
 
-/**
- * Fallback Vector: Sacred Lotus Flower (🪷)
- */
-export function drawLotusIcon(ctx, cx, cy, size, petalColor = '#fef3c7', coreColor = '#f59e0b') {
-  ctx.save();
-  ctx.translate(cx, cy);
-  const s = size / 40;
-
-  const glow = ctx.createRadialGradient(0, 0, 2 * s, 0, 0, 24 * s);
-  glow.addColorStop(0, 'rgba(251, 191, 36, 0.35)');
-  glow.addColorStop(1, 'rgba(251, 191, 36, 0)');
-  ctx.fillStyle = glow;
-  ctx.beginPath();
-  ctx.arc(0, 0, 24 * s, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = petalColor;
-  ctx.strokeStyle = coreColor;
-  ctx.lineWidth = 1.2 * s;
-
-  ctx.beginPath();
-  ctx.moveTo(-4 * s, 10 * s);
-  ctx.quadraticCurveTo(-22 * s, 8 * s, -24 * s, -4 * s);
-  ctx.quadraticCurveTo(-14 * s, -14 * s, -2 * s, 2 * s);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.beginPath();
-  ctx.moveTo(4 * s, 10 * s);
-  ctx.quadraticCurveTo(22 * s, 8 * s, 24 * s, -4 * s);
-  ctx.quadraticCurveTo(14 * s, -14 * s, 2 * s, 2 * s);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.beginPath();
-  ctx.moveTo(-3 * s, 11 * s);
-  ctx.quadraticCurveTo(-16 * s, 2 * s, -14 * s, -16 * s);
-  ctx.quadraticCurveTo(-6 * s, -12 * s, 0, 4 * s);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.beginPath();
-  ctx.moveTo(3 * s, 11 * s);
-  ctx.quadraticCurveTo(16 * s, 2 * s, 14 * s, -16 * s);
-  ctx.quadraticCurveTo(6 * s, -12 * s, 0, 4 * s);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-
-  const centerGrad = ctx.createLinearGradient(0, -22 * s, 0, 10 * s);
-  centerGrad.addColorStop(0, '#ffffff');
-  centerGrad.addColorStop(1, petalColor);
-  ctx.fillStyle = centerGrad;
-  ctx.beginPath();
-  ctx.moveTo(0, -22 * s);
-  ctx.quadraticCurveTo(9 * s, -8 * s, 5 * s, 12 * s);
-  ctx.quadraticCurveTo(0, 14 * s, -5 * s, 12 * s);
-  ctx.quadraticCurveTo(-9 * s, -8 * s, 0, -22 * s);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.fillStyle = coreColor;
-  ctx.beginPath();
-  ctx.ellipse(0, 12 * s, 8 * s, 3.5 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.restore();
+function formatLkr(n) {
+  return Number(n || 0).toLocaleString('en-US');
 }
 
-/**
- * Vector: Calendar Icon
- */
-export function drawCalendarIcon(ctx, x, y, size, color = '#ffffff') {
-  ctx.save();
-  ctx.translate(x, y);
-  const s = size / 24;
+function receiptRows(data) {
+  const { activeBooks = [], deliveryMethod, deliveryCost = 0, roundingAdjustment = 0, parcelWeightKg = 0 } = data;
+  const rows = activeBooks.map((b) => ({
+    label: b.titleSinhala,
+    note: `${b.quantity} × රු. ${b.costLkr}`,
+    value: `රු. ${formatLkr(b.quantity * b.costLkr)}`,
+  }));
 
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2 * s;
-  drawCanvasRoundedRect(ctx, 2 * s, 4 * s, 20 * s, 18 * s, 4 * s, 'rgba(255, 255, 255, 0.15)', color, 2 * s);
-
-  ctx.fillStyle = color;
-  ctx.fillRect(2 * s, 4 * s, 20 * s, 5 * s);
-
-  ctx.fillStyle = color;
-  ctx.fillRect(6 * s, 1 * s, 2.5 * s, 5 * s);
-  ctx.fillRect(15.5 * s, 1 * s, 2.5 * s, 5 * s);
-
-  ctx.fillStyle = color;
-  const dots = [
-    [6, 12], [11, 12], [16, 12],
-    [6, 16], [11, 16], [16, 16]
-  ];
-  dots.forEach(([dx, dy]) => {
-    ctx.beginPath();
-    ctx.arc(dx * s, dy * s, 1.2 * s, 0, Math.PI * 2);
-    ctx.fill();
-  });
-
-  ctx.restore();
-}
-
-/**
- * Vector: Delivery Truck Icon
- */
-export function drawTruckIcon(ctx, x, y, size, color = '#064e43') {
-  ctx.save();
-  ctx.translate(x, y);
-  const s = size / 24;
-
-  ctx.fillStyle = color;
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 1.5 * s;
-
-  ctx.beginPath();
-  ctx.roundRect(1 * s, 3 * s, 13 * s, 12 * s, 2 * s);
-  ctx.fill();
-
-  ctx.beginPath();
-  ctx.moveTo(14 * s, 7 * s);
-  ctx.lineTo(19 * s, 7 * s);
-  ctx.lineTo(22 * s, 11 * s);
-  ctx.lineTo(22 * s, 15 * s);
-  ctx.lineTo(14 * s, 15 * s);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.fillStyle = '#ffffff';
-  ctx.beginPath();
-  ctx.moveTo(15.5 * s, 8.5 * s);
-  ctx.lineTo(18.5 * s, 8.5 * s);
-  ctx.lineTo(20.5 * s, 11.5 * s);
-  ctx.lineTo(15.5 * s, 11.5 * s);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.fillStyle = '#1f2937';
-  ctx.beginPath();
-  ctx.arc(5.5 * s, 16 * s, 2.8 * s, 0, Math.PI * 2);
-  ctx.arc(17.5 * s, 16 * s, 2.8 * s, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = '#ffffff';
-  ctx.beginPath();
-  ctx.arc(5.5 * s, 16 * s, 1.1 * s, 0, Math.PI * 2);
-  ctx.arc(17.5 * s, 16 * s, 1.1 * s, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.restore();
-}
-
-/**
- * Fallback Vector: Classical Bank Medallion
- */
-export function drawBankMedallion(ctx, cx, cy, radius) {
-  ctx.save();
-  ctx.translate(cx, cy);
-
-  const outerGrad = ctx.createLinearGradient(-radius, -radius, radius, radius);
-  outerGrad.addColorStop(0, '#fef08a');
-  outerGrad.addColorStop(0.5, '#d97706');
-  outerGrad.addColorStop(1, '#92400e');
-  
-  ctx.beginPath();
-  ctx.arc(0, 0, radius, 0, Math.PI * 2);
-  ctx.fillStyle = outerGrad;
-  ctx.fill();
-
-  ctx.beginPath();
-  ctx.arc(0, 0, radius - 4, 0, Math.PI * 2);
-  const innerGrad = ctx.createRadialGradient(0, 0, 4, 0, 0, radius - 4);
-  innerGrad.addColorStop(0, '#0f766e');
-  innerGrad.addColorStop(1, '#064e43');
-  ctx.fillStyle = innerGrad;
-  ctx.fill();
-
-  const s = radius / 36;
-  ctx.fillStyle = '#fef3c7';
-
-  ctx.beginPath();
-  ctx.moveTo(0, -18 * s);
-  ctx.lineTo(18 * s, -7 * s);
-  ctx.lineTo(-18 * s, -7 * s);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.fillRect(-19 * s, -6 * s, 38 * s, 3 * s);
-
-  const pillarX = [-14, -5, 5, 14];
-  pillarX.forEach((px) => {
-    ctx.fillRect((px - 1.8) * s, -2 * s, 3.6 * s, 12 * s);
-  });
-
-  ctx.fillRect(-20 * s, 11 * s, 40 * s, 3.5 * s);
-  ctx.fillRect(-22 * s, 15 * s, 44 * s, 3.5 * s);
-
-  ctx.restore();
-}
-
-/**
- * Vector: Vintage Scroll Ribbon with Bold Sinhala Notice
- */
-export function drawRibbonScroll(ctx, x, y, width, height, text, ribbonColor = '#991b1b', textColor = '#ffffff') {
-  ctx.save();
-  const tailWidth = 26;
-  const foldOffset = 10;
-
-  // Left Ribbon Tail
-  ctx.fillStyle = '#701a75';
-  ctx.beginPath();
-  ctx.moveTo(x + 12, y + height);
-  ctx.lineTo(x + 12, y + height + foldOffset);
-  ctx.lineTo(x + 24, y + height);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.fillStyle = '#7f1d1d';
-  ctx.beginPath();
-  ctx.moveTo(x + 12, y + 6);
-  ctx.lineTo(x - tailWidth, y + 6);
-  ctx.lineTo(x - tailWidth + 14, y + height / 2 + 3);
-  ctx.lineTo(x - tailWidth, y + height);
-  ctx.lineTo(x + 12, y + height);
-  ctx.closePath();
-  ctx.fill();
-
-  // Right Ribbon Tail
-  ctx.fillStyle = '#701a75';
-  ctx.beginPath();
-  ctx.moveTo(x + width - 12, y + height);
-  ctx.lineTo(x + width - 12, y + height + foldOffset);
-  ctx.lineTo(x + width - 24, y + height);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.fillStyle = '#7f1d1d';
-  ctx.beginPath();
-  ctx.moveTo(x + width - 12, y + 6);
-  ctx.lineTo(x + width + tailWidth, y + 6);
-  ctx.lineTo(x + width + tailWidth - 14, y + height / 2 + 3);
-  ctx.lineTo(x + width + tailWidth, y + height);
-  ctx.lineTo(x + width - 12, y + height);
-  ctx.closePath();
-  ctx.fill();
-
-  // Main Ribbon Body
-  const ribbonGrad = ctx.createLinearGradient(x, y, x, y + height);
-  ribbonGrad.addColorStop(0, '#b91c1c');
-  ribbonGrad.addColorStop(0.5, ribbonColor);
-  ribbonGrad.addColorStop(1, '#7f1d1d');
-
-  drawCanvasRoundedRect(ctx, x, y, width, height, 8, ribbonGrad, '#f59e0b', 2);
-
-  // Bold Text
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = textColor;
-  ctx.font = 'bold 22px "Noto Sans Sinhala", Outfit, sans-serif';
-  ctx.fillText(text, x + width / 2, y + height / 2 + 1);
-
-  ctx.restore();
-}
-
-/**
- * Fallback Vector: WhatsApp Medallion Seal
- */
-export function drawWhatsAppMedallion(ctx, cx, cy, radius) {
-  ctx.save();
-  ctx.translate(cx, cy);
-
-  ctx.beginPath();
-  ctx.arc(0, 0, radius, 0, Math.PI * 2);
-  ctx.fillStyle = '#ffffff';
-  ctx.fill();
-
-  ctx.beginPath();
-  ctx.arc(0, 0, radius - 2.5, 0, Math.PI * 2);
-  const waGrad = ctx.createLinearGradient(-radius, -radius, radius, radius);
-  waGrad.addColorStop(0, '#25d366');
-  waGrad.addColorStop(1, '#128c7e');
-  ctx.fillStyle = waGrad;
-  ctx.fill();
-
-  const s = radius / 22;
-  ctx.fillStyle = '#ffffff';
-  ctx.beginPath();
-  ctx.arc(0, 0, 11 * s, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.beginPath();
-  ctx.moveTo(-6 * s, 8 * s);
-  ctx.lineTo(-11 * s, 13 * s);
-  ctx.lineTo(-2 * s, 10 * s);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.fillStyle = '#128c7e';
-  ctx.beginPath();
-  ctx.arc(0, 0, 7.5 * s, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#ffffff';
-  ctx.beginPath();
-  ctx.ellipse(0, 0, 3 * s, 5.5 * s, Math.PI / 4, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.restore();
-}
-
-/**
- * Draws the entire executive Buddhist order summary card
- */
-export function drawOrderCard(ctx, w, h, data, assets = {}) {
-  const {
-    activeBooks = [],
-    totalBooksCount = 0,
-    booksCost = 0,
-    deliveryMethod = 'courier',
-    deliveryCost = 0,
-    totalCost = 0,
-    bankInfo = {},
-    contactInfo = {}
-  } = data;
-
-  const {
-    bookCovers = {},
-    lotusIcon = null,
-    bankIcon = null,
-    whatsappIcon = null
-  } = assets;
-
-  // 1. Canvas Background: warm calm parchment
-  ctx.fillStyle = '#f3efe8';
-  ctx.fillRect(0, 0, w, h);
-
-  // 2. Outer Card with delicate drop shadow and gold inner trim
-  const cardX = 40;
-  const cardY = 36;
-  const cardW = 1120;
-  const cardH = 1428;
-  const cardR = 28;
-
-  ctx.save();
-  ctx.shadowColor = 'rgba(15, 118, 110, 0.12)';
-  ctx.shadowBlur = 32;
-  ctx.shadowOffsetY = 10;
-  drawCanvasRoundedRect(ctx, cardX, cardY, cardW, cardH, cardR, '#ffffff', '#e3dcd1', 2);
-  ctx.restore();
-
-  // Inner subtle gold border
-  drawCanvasRoundedRect(ctx, cardX + 6, cardY + 6, cardW - 12, cardH - 12, cardR - 4, null, 'rgba(217, 119, 6, 0.15)', 1);
-
-  // 3. Header Banner (Clipped to card top corners)
-  ctx.save();
-  ctx.beginPath();
-  if (typeof ctx.roundRect === 'function') {
-    ctx.roundRect(cardX, cardY, cardW, cardH, cardR);
+  if (deliveryMethod === 'courier') {
+    rows.push({ label: 'කූරියර් ගාස්තුව', note: `${Number(parcelWeightKg.toFixed(2))} kg • දින 3–10`, value: `රු. ${formatLkr(deliveryCost)}` });
+  } else if (deliveryMethod === 'pickmeFlash') {
+    rows.push({ label: 'PickMe Flash', note: 'හෝමාගම සිට 20km තුළ', value: 'රියදුරුට ගෙවන්න' });
   } else {
-    ctx.rect(cardX, cardY, cardW, cardH);
+    rows.push({ label: 'පැමිණ ලබා ගැනීම', note: 'Path Nirvana හෝමාගම', value: 'නොමිලේ' });
   }
+
+  if (roundingAdjustment > 0) {
+    rows.push({ label: 'වටයීම (Rounding)', value: `+ රු. ${formatLkr(roundingAdjustment)}`, muted: true });
+  }
+  return rows;
+}
+
+/** Computes the y position of every section so the canvas height fits the content */
+function computeLayout(data) {
+  const rows = receiptRows(data);
+  const receiptY = HERO_H + 34;
+  const receiptH = RECEIPT_PAD * 2 + rows.length * ROW_H + SEP_H + TOTAL_H;
+  const payY = receiptY + receiptH + 22;
+  const stepsY = payY + PAY_H + GAP;
+  const waY = stepsY + STEPS_H + GAP;
+  const footerY = waY + WA_H;
+  return { rows, receiptY, receiptH, payY, stepsY, waY, footerY, height: footerY + FOOTER_H };
+}
+
+function drawHero(ctx, data, assets) {
+  const { activeBooks = [], totalBooksCount = 0 } = data;
+  const { bookCovers = {}, lotusIcon } = assets;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, W, HERO_H);
   ctx.clip();
 
-  const headerH = 166;
-  const headerGrad = ctx.createLinearGradient(cardX, cardY, cardX + cardW, cardY + headerH);
-  headerGrad.addColorStop(0, '#04342d');
-  headerGrad.addColorStop(0.5, '#074e44');
-  headerGrad.addColorStop(1, '#0e695d');
-  ctx.fillStyle = headerGrad;
-  ctx.fillRect(cardX, cardY, cardW, headerH);
+  const bg = ctx.createRadialGradient(W * 0.8, HERO_H * 0.1, 0, W * 0.8, HERO_H * 0.1, W);
+  bg.addColorStop(0, COLORS.pineLight);
+  bg.addColorStop(0.55, COLORS.pine);
+  bg.addColorStop(1, COLORS.pineDeep);
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, HERO_H);
 
-  // Golden accent top stripe
-  const goldStripe = ctx.createLinearGradient(cardX, cardY, cardX + cardW, cardY);
-  goldStripe.addColorStop(0, '#d97706');
-  goldStripe.addColorStop(0.5, '#fef08a');
-  goldStripe.addColorStop(1, '#d97706');
-  ctx.fillStyle = goldStripe;
-  ctx.fillRect(cardX, cardY, cardW, 6);
-
-  // Lotus Icon in Header (Use directly from user uploaded icon)
-  if (lotusIcon) {
-    ctx.save();
-    // Soft glowing backdrop
-    const lGlow = ctx.createRadialGradient(cardX + 66, cardY + 84, 10, cardX + 66, cardY + 84, 34);
-    lGlow.addColorStop(0, 'rgba(254, 240, 138, 0.25)');
-    lGlow.addColorStop(1, 'rgba(254, 240, 138, 0)');
-    ctx.fillStyle = lGlow;
-    ctx.beginPath();
-    ctx.arc(cardX + 66, cardY + 84, 34, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.drawImage(lotusIcon, cardX + 38, cardY + 56, 56, 56);
-    ctx.restore();
-  } else {
-    drawLotusIcon(ctx, cardX + 66, cardY + 84, 48, '#fef3c7', '#f59e0b');
-  }
-
-  // Brand Name & Subtitle
+  // Brand
+  if (lotusIcon) ctx.drawImage(lotusIcon, PAD, 44, 46, 46);
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 40px Outfit, sans-serif';
-  ctx.fillText('Path Nirvana', cardX + 110, cardY + 82);
+  setFont(ctx, 700, 30);
+  ctx.fillText('Path Nirvana', PAD + 60, 74);
+  ctx.fillStyle = '#bfe3d8';
+  setFont(ctx, 500, 17, SINHALA);
+  ctx.fillText('ධර්ම දාන පොත් සේවාව • හෝමාගම', PAD + 60, 99);
 
-  ctx.fillStyle = '#a7f3d0';
-  ctx.font = '500 18px "Noto Sans Sinhala", Outfit, sans-serif';
-  ctx.fillText('හෝමාගම (Homagama) • ධර්ම දාන පොත් සේවාව', cardX + 110, cardY + 116);
-
-  // Top-Right Badges: Date & Delivery
+  // Price date (top right)
   const dateStr = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-  const datePillW = 205;
-  const datePillH = 40;
-  const datePillX = cardX + cardW - datePillW - 36;
-  const datePillY = cardY + 34;
-  drawCanvasRoundedRect(ctx, datePillX, datePillY, datePillW, datePillH, 20, 'rgba(255, 255, 255, 0.16)', 'rgba(255, 255, 255, 0.3)', 1);
-  drawCalendarIcon(ctx, datePillX + 14, datePillY + 9, 22, '#ffffff');
-  ctx.textAlign = 'center';
+  ctx.textAlign = 'right';
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 16px Outfit, sans-serif';
-  ctx.fillText(dateStr, datePillX + 116, datePillY + 25);
+  setFont(ctx, 600, 17);
+  ctx.fillText(dateStr, W - PAD, 72);
+  const dateW = ctx.measureText(dateStr).width;
+  ctx.fillStyle = '#cfe8e0';
+  setFont(ctx, 500, 17, SINHALA);
+  ctx.fillText('මිල ගණන් ', W - PAD - dateW, 72);
 
-  // Delivery Pill
-  const delPillW = 245;
-  const delPillH = 46;
-  const delPillX = cardX + cardW - delPillW - 36;
-  const delPillY = cardY + 86;
-  drawCanvasRoundedRect(ctx, delPillX, delPillY, delPillW, delPillH, 23, '#ffffff', '#f59e0b', 1.5);
-  drawTruckIcon(ctx, delPillX + 14, delPillY + 11, 24, '#064e43');
-  
-  const delName = deliveryMethod === 'courier' ? 'කූරියර් Courier' : (deliveryMethod === 'pickmeFlash' ? 'PickMe Flash' : 'පැමිණ ලබා ගැනීම');
-  ctx.textAlign = 'center';
-  ctx.fillStyle = '#064e43';
-  ctx.font = 'bold 17px "Noto Sans Sinhala", sans-serif';
-  ctx.fillText(delName, delPillX + 138, delPillY + 29);
+  // Book covers fanned on the right, with quantity tags
+  drawCoverFan(ctx, activeBooks, bookCovers);
+
+  // Headline: "දහම් පොත් {n}ක් / දන් දීමට"
+  ctx.textAlign = 'left';
+  ctx.fillStyle = COLORS.goldLight;
+  setFont(ctx, 600, 20, SINHALA);
+  ctx.fillText('ඔබගේ ධර්ම දාන ඇණවුම', PAD, 176);
+
+  const pre = 'දහම් පොත් ';
+  const num = String(totalBooksCount);
+  const post = 'ක්';
+  const maxHeadlineW = 560;
+  let size = 60;
+  const lineWidth = (s) => {
+    setFont(ctx, 700, s, SERIF);
+    const a = ctx.measureText(pre).width + ctx.measureText(post).width;
+    setFont(ctx, 800, s + 4);
+    return a + ctx.measureText(num).width;
+  };
+  while (size > 40 && lineWidth(size) > maxHeadlineW) size -= 2;
+
+  let x = PAD;
+  const line1Y = 250;
+  ctx.fillStyle = '#ffffff';
+  setFont(ctx, 700, size, SERIF);
+  ctx.fillText(pre, x, line1Y);
+  x += ctx.measureText(pre).width;
+  ctx.fillStyle = COLORS.goldLight;
+  setFont(ctx, 800, size + 4);
+  ctx.fillText(num, x, line1Y);
+  x += ctx.measureText(num).width;
+  ctx.fillStyle = '#ffffff';
+  setFont(ctx, 700, size, SERIF);
+  ctx.fillText(post, x, line1Y);
+  ctx.fillText('දන් දීමට', PAD, line1Y + 75);
+
+  // Motto
+  ctx.fillStyle = '#e7d9b5';
+  setFont(ctx, 600, 22, SERIF);
+  ctx.fillText('“සබ්බ දානං ධම්ම දානං ජිනාති”', PAD, 380);
+  ctx.fillStyle = '#9fc9bd';
+  setFont(ctx, 'italic 500', 16);
+  ctx.fillText('The gift of Dhamma excels all gifts', PAD, 404);
 
   ctx.restore();
 
-  // 4. Centered Floating Buddhist Motto Plaque (Overlapping bottom edge of header)
-  const plaqueW = 560;
-  const plaqueH = 44;
-  const plaqueX = (w - plaqueW) / 2;
-  const plaqueY = cardY + headerH - 22;
+  // Gold rule under the hero
+  const rule = ctx.createLinearGradient(0, 0, W, 0);
+  rule.addColorStop(0, COLORS.gold);
+  rule.addColorStop(0.5, COLORS.goldLight);
+  rule.addColorStop(1, COLORS.gold);
+  ctx.fillStyle = rule;
+  ctx.fillRect(0, HERO_H - 5, W, 5);
+}
+
+function drawCoverFan(ctx, books, covers) {
+  const shown = books.filter((b) => covers[b.id]).slice(0, 3);
+  const placements = {
+    1: [{ cx: 830, cy: 255, rot: -4, w: 200 }],
+    2: [{ cx: 760, cy: 265, rot: -8, w: 190 }, { cx: 905, cy: 245, rot: 6, w: 190 }],
+    3: [{ cx: 715, cy: 270, rot: -10, w: 165 }, { cx: 835, cy: 250, rot: 0, w: 165 }, { cx: 955, cy: 270, rot: 10, w: 165 }],
+  }[shown.length];
+  if (!placements) return;
+
+  shown.forEach((b, i) => {
+    const img = covers[b.id];
+    const { cx, cy, rot, w } = placements[i];
+    const h = (w * img.height) / img.width;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate((rot * Math.PI) / 180);
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+    ctx.shadowBlur = 40;
+    ctx.shadowOffsetY = 24;
+    fillRoundedRect(ctx, -w / 2, -h / 2, w, h, 6, '#ffffff');
+    ctx.shadowColor = 'transparent';
+    roundedRectPath(ctx, -w / 2, -h / 2, w, h, 6);
+    ctx.clip();
+    ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    ctx.restore();
+  });
+
+  // Quantity tags drawn after all covers so none is hidden behind a neighbour
+  shown.forEach((b, i) => {
+    const img = covers[b.id];
+    const { cx, cy, w } = placements[i];
+    const h = (w * img.height) / img.width;
+    const label = `× ${b.quantity}`;
+    setFont(ctx, 800, 22);
+    const tw = ctx.measureText(label).width + 28;
+    const tx = cx - w / 2 + 14;
+    const ty = cy + h / 2 - 52;
+    ctx.save();
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+    ctx.shadowBlur = 14;
+    ctx.shadowOffsetY = 6;
+    fillRoundedRect(ctx, tx, ty, tw, 38, 19, COLORS.goldLight);
+    ctx.restore();
+    ctx.fillStyle = '#3b2a06';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, tx + 14, ty + 20);
+    ctx.textBaseline = 'alphabetic';
+  });
+}
+
+function drawReceipt(ctx, data, layout) {
+  const { deliveryMethod, totalCost = 0 } = data;
+  const { rows, receiptY: y, receiptH: h } = layout;
+  const left = PAD + 30;
+  const right = PAD + INNER - 30;
 
   ctx.save();
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.18)';
-  ctx.shadowBlur = 12;
-  ctx.shadowOffsetY = 4;
-  drawCanvasRoundedRect(ctx, plaqueX, plaqueY, plaqueW, plaqueH, 22, '#032620', '#f59e0b', 2);
+  ctx.shadowColor = 'rgba(80, 60, 20, 0.08)';
+  ctx.shadowBlur = 30;
+  ctx.shadowOffsetY = 10;
+  fillRoundedRect(ctx, PAD, y, INNER, h, 22, COLORS.paper);
+  ctx.restore();
+  fillRoundedRect(ctx, PAD, y, INNER, h, 22, null, COLORS.line, 1);
+
+  rows.forEach((row, i) => {
+    const baseY = y + RECEIPT_PAD + i * ROW_H + 34;
+    const size = row.muted ? 18 : 22;
+
+    ctx.textAlign = 'right';
+    ctx.fillStyle = row.muted ? COLORS.muted : COLORS.ink;
+    setFont(ctx, row.muted ? 500 : 600, size);
+    ctx.fillText(row.value, right, baseY);
+    const valueW = ctx.measureText(row.value).width;
+
+    ctx.textAlign = 'left';
+    let noteW = 0;
+    if (row.note) {
+      setFont(ctx, 500, 17);
+      noteW = ctx.measureText(row.note).width + 10;
+    }
+    const labelMax = right - left - valueW - 30 - noteW;
+    fitFontSize(ctx, row.label, labelMax, 400, size, SANS, 18);
+    ctx.fillStyle = row.muted ? COLORS.muted : COLORS.text;
+    const label = ellipsize(ctx, row.label, labelMax);
+    ctx.fillText(label, left, baseY);
+
+    if (row.note) {
+      const lw = ctx.measureText(label).width;
+      ctx.fillStyle = COLORS.muted;
+      setFont(ctx, 500, 17);
+      ctx.fillText(row.note, left + lw + 10, baseY);
+    }
+  });
+
+  // Dashed separator
+  const sepY = y + RECEIPT_PAD + rows.length * ROW_H + SEP_H / 2;
+  ctx.save();
+  ctx.strokeStyle = COLORS.dash;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([8, 6]);
+  ctx.beginPath();
+  ctx.moveTo(left, sepY);
+  ctx.lineTo(right, sepY);
+  ctx.stroke();
   ctx.restore();
 
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#fef3c7';
-  ctx.font = 'bold 19px "Noto Sans Sinhala", serif';
-  ctx.fillText('❖  සබ්බ දානං ධම්ම දානං ජිනාති  ❖', w / 2, plaqueY + plaqueH / 2 + 1);
-
-  // 5. Section 1: Ordered Books
-  let curY = plaqueY + plaqueH + 26;
-
+  // Grand total
+  const tb = sepY + SEP_H / 2;
   ctx.textAlign = 'left';
+  ctx.fillStyle = COLORS.pine;
+  setFont(ctx, 700, 24, SINHALA);
+  ctx.fillText(deliveryMethod === 'pickup' ? 'ගෙවිය යුතු මුළු මුදල' : 'තැන්පත් කළ යුතු මුළු මුදල', left, tb + 46);
+  ctx.fillStyle = COLORS.muted;
+  setFont(ctx, 500, 16);
+  ctx.fillText(deliveryMethod === 'pickup' ? 'Amount to pay' : 'Amount to deposit', left, tb + 72);
+
+  ctx.textAlign = 'right';
+  ctx.fillStyle = COLORS.pine;
+  setFont(ctx, 800, 64);
+  const totalStr = formatLkr(totalCost);
+  ctx.fillText(totalStr, right, tb + 70);
+  const totalW = ctx.measureText(totalStr).width;
+  ctx.fillStyle = COLORS.gold;
+  setFont(ctx, 700, 30);
+  ctx.fillText('රු.', right - totalW - 10, tb + 70);
+}
+
+function drawPayment(ctx, data, layout, assets) {
+  const { deliveryMethod, bankInfo = {} } = data;
+  const { lankaQrImage } = assets;
+  const y = layout.payY;
+  const bankW = lankaQrImage ? INNER - 22 - QR_TILE_W : INNER;
+  const x = PAD;
+
+  // Bank account block
+  fillRoundedRect(ctx, x, y, bankW, PAY_H, 22, COLORS.pine);
+
+  const tag = deliveryMethod === 'pickup' ? 'කලින් ගෙවා පොත් වෙන්කර ගන්න' : 'කලින් ගෙවිය යුතුයි • COD නැත';
+  setFont(ctx, 700, 17);
+  const tagW = ctx.measureText(tag).width + 28;
+  fillRoundedRect(ctx, x + 30, y + 26, tagW, 36, 8, deliveryMethod === 'pickup' ? COLORS.gold : COLORS.red);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(tag, x + 44, y + 45);
   ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = '#1f2937';
-  ctx.font = 'bold 22px "Noto Sans Sinhala", Outfit, sans-serif';
-  ctx.fillText('1. ඇණවුම් කළ පොත් (Ordered Books)', cardX + 36, curY);
 
-  curY += 16;
-  const bookCount = activeBooks.length;
-  const bookCardH = bookCount === 1 ? 142 : 124;
+  const bankName = (bankInfo.bankName || '').split(' (')[0].toUpperCase();
+  ctx.fillStyle = '#9fc9bd';
+  setFont(ctx, 500, 16);
+  drawSpacedText(ctx, `${bankName} • ACCOUNT NO.`, x + 30, y + 104, 1.5);
 
-  activeBooks.forEach((b) => {
-    const q = Number(b.quantity) || 0;
-    const itemTotal = q * (b.costLkr || 0);
-    const itemCardX = cardX + 36;
-    const itemCardW = cardW - 72;
+  ctx.fillStyle = COLORS.goldLight;
+  setFont(ctx, 700, 50);
+  drawSpacedText(ctx, String(bankInfo.accountNumber || ''), x + 30, y + 168, 4);
 
-    drawCanvasRoundedRect(ctx, itemCardX, curY, itemCardW, bookCardH, 16, '#fbfbfa', '#e5e7eb', 1.5);
+  ctx.fillStyle = '#e2efe9';
+  setFont(ctx, 500, 19);
+  const branch = (bankInfo.branch || '').replace(/^.*\((.*)\)$/, '$1');
+  ctx.fillText(`${bankInfo.accountName || ''} • ${branch} ශාඛාව`, x + 30, y + 212);
 
-    // Book Cover Image
-    const coverImg = bookCovers[b.id];
-    const imgW = 72;
-    const imgH = bookCardH === 142 ? 116 : 102;
-    const imgY = curY + (bookCardH - imgH) / 2;
-    if (coverImg) {
-      drawRoundedImage(ctx, coverImg, itemCardX + 16, imgY, imgW, imgH, 8);
-    } else {
-      drawCanvasRoundedRect(ctx, itemCardX + 16, imgY, imgW, imgH, 8, '#e5e7eb', '#d1d5db');
-      ctx.fillStyle = '#9ca3af';
-      ctx.font = 'bold 28px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('📖', itemCardX + 16 + imgW / 2, imgY + imgH / 2 + 8);
-    }
-
-    // Book Title and Specs
-    const textX = itemCardX + 16 + imgW + 18;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillStyle = '#111827';
-    ctx.font = 'bold 22px "Noto Sans Sinhala", sans-serif';
-    ctx.fillText(b.titleSinhala, textX, curY + 40);
-
-    ctx.fillStyle = '#6b7280';
-    ctx.font = '500 16px "Noto Sans Sinhala", Outfit, sans-serif';
-    ctx.fillText(`රු. ${b.costLkr} බැගින්  •  බර: ${b.weightGrams}g  •  පිටු ${b.pages}`, textX, curY + 70);
-
-    ctx.fillStyle = '#0f766e';
-    ctx.font = '500 14px "Noto Sans Sinhala", sans-serif';
-    ctx.fillText('✓ ධර්ම දානයක් ලෙස මුද්‍රණ වියදමටත් වඩා අඩුවෙන්', textX, curY + 98);
-
-    // Prominent Quantity Box
-    const qtyBoxW = 125;
-    const qtyBoxH = 92;
-    const qtyBoxX = itemCardX + itemCardW - 320;
-    const qtyBoxY = curY + (bookCardH - qtyBoxH) / 2;
-
-    drawCanvasRoundedRect(ctx, qtyBoxX, qtyBoxY, qtyBoxW, qtyBoxH, 14, '#f0fdfa', '#0f766e', 2);
+  // LankaQR tile
+  if (lankaQrImage) {
+    const qx = x + bankW + 22;
+    fillRoundedRect(ctx, qx, y, QR_TILE_W, PAY_H, 22, '#ffffff', COLORS.line, 1);
+    const box = 168;
+    const ratio = Math.min(box / lankaQrImage.width, box / lankaQrImage.height);
+    const iw = lankaQrImage.width * ratio;
+    const ih = lankaQrImage.height * ratio;
+    ctx.imageSmoothingEnabled = false; // keep QR modules sharp
+    ctx.drawImage(lankaQrImage, qx + (QR_TILE_W - iw) / 2, y + 10 + (box - ih) / 2, iw, ih);
+    ctx.imageSmoothingEnabled = true;
 
     ctx.textAlign = 'center';
-    ctx.fillStyle = '#0f766e';
-    ctx.font = 'bold 12px "Noto Sans Sinhala", Outfit, sans-serif';
-    ctx.fillText('ප්‍රමාණය (QTY)', qtyBoxX + qtyBoxW / 2, qtyBoxY + 22);
-
-    ctx.fillStyle = '#044e43';
-    ctx.font = 'bold 40px Outfit, sans-serif';
-    ctx.fillText(String(q), qtyBoxX + qtyBoxW / 2, qtyBoxY + 62);
-
-    ctx.fillStyle = '#0f766e';
-    ctx.font = 'bold 12px "Noto Sans Sinhala", sans-serif';
-    ctx.fillText('පොත් (Books)', qtyBoxX + qtyBoxW / 2, qtyBoxY + 82);
-
-    // Subtotal Box on Right
-    const subtotalX = itemCardX + itemCardW - 20;
-    ctx.textAlign = 'right';
-    ctx.fillStyle = '#6b7280';
-    ctx.font = '500 14px "Noto Sans Sinhala", Outfit, sans-serif';
-    ctx.fillText('එකතුව (Subtotal)', subtotalX, curY + 38);
-
-    ctx.fillStyle = '#047857';
-    ctx.font = 'bold 28px Outfit, sans-serif';
-    ctx.fillText(`රු. ${itemTotal.toLocaleString()}`, subtotalX, curY + 74);
-
-    ctx.fillStyle = '#9ca3af';
-    ctx.font = '500 14px Outfit, "Noto Sans Sinhala", sans-serif';
-    ctx.fillText(`(${q} × රු. ${b.costLkr})`, subtotalX, curY + 98);
-
-    curY += bookCardH + 12;
-  });
-
-  // 6. Section 2: Split Grand Total & Delivery Breakdown Banner
-  curY += 8;
-  const bannerX = cardX + 36;
-  const bannerW = cardW - 72;
-  const bannerH = 132;
-
-  // Left Plate: Delivery & Books Breakdown
-  const leftW = Math.round(bannerW * 0.56);
-  const leftGrad = ctx.createLinearGradient(bannerX, curY, bannerX + leftW, curY + bannerH);
-  leftGrad.addColorStop(0, '#04342d');
-  leftGrad.addColorStop(1, '#0b5247');
-
-  ctx.save();
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.14)';
-  ctx.shadowBlur = 16;
-  ctx.shadowOffsetY = 6;
-  drawCanvasRoundedRect(ctx, bannerX, curY, leftW, bannerH, 18, leftGrad, null);
-  ctx.restore();
-
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'alphabetic';
-
-  // Delivery breakdown
-  ctx.fillStyle = '#a7f3d0';
-  ctx.font = '500 17px "Noto Sans Sinhala", Outfit, sans-serif';
-  const delLabel = deliveryMethod === 'courier' ? '📦 කූරියර් Courier ගාස්තුව:' : (deliveryMethod === 'pickmeFlash' ? '⚡ PickMe Flash ගාස්තුව:' : '🚶 ලබා ගැනීම (Homagama):');
-  ctx.fillText(delLabel, bannerX + 24, curY + 46);
-
-  ctx.textAlign = 'right';
-  ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 20px Outfit, "Noto Sans Sinhala", sans-serif';
-  const delValStr = deliveryCost > 0 ? `රු. ${deliveryCost.toLocaleString()}` : (deliveryMethod === 'pickup' ? 'නොමිලේ (Free)' : 'පාරිභෝගිකයා ගෙවයි');
-  ctx.fillText(delValStr, bannerX + leftW - 24, curY + 46);
-
-  // Books breakdown
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#a7f3d0';
-  ctx.font = '500 17px "Noto Sans Sinhala", Outfit, sans-serif';
-  ctx.fillText(`📚 පොත් ${totalBooksCount} සඳහා එකතුව:`, bannerX + 24, curY + 94);
-
-  ctx.textAlign = 'right';
-  ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 20px Outfit, sans-serif';
-  ctx.fillText(`රු. ${booksCost.toLocaleString()}`, bannerX + leftW - 24, curY + 94);
-
-  // Right Plate: Radiant Warm Brass / Gold Grand Total Plate
-  const rightX = bannerX + leftW + 12;
-  const rightW = bannerW - leftW - 12;
-
-  const goldPlate = ctx.createLinearGradient(rightX, curY, rightX + rightW, curY + bannerH);
-  goldPlate.addColorStop(0, '#f59e0b');
-  goldPlate.addColorStop(0.3, '#fbbf24');
-  goldPlate.addColorStop(0.7, '#d97706');
-  goldPlate.addColorStop(1, '#b45309');
-
-  ctx.save();
-  ctx.shadowColor = 'rgba(180, 83, 9, 0.25)';
-  ctx.shadowBlur = 18;
-  ctx.shadowOffsetY = 6;
-  drawCanvasRoundedRect(ctx, rightX, curY, rightW, bannerH, 18, goldPlate, '#78350f', 1.5);
-  ctx.restore();
-
-  // Grand Total Content
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = '#451a03';
-  ctx.font = 'bold 14px Outfit, "Noto Sans Sinhala", sans-serif';
-  ctx.fillText('ගෙවිය යුතු මුළු මුදල (GRAND TOTAL)', rightX + rightW / 2, curY + 36);
-
-  ctx.fillStyle = '#1c0c02';
-  ctx.font = 'bold 46px Outfit, sans-serif';
-  ctx.fillText(`රු. ${totalCost.toLocaleString()}`, rightX + rightW / 2, curY + 84);
-
-  ctx.fillStyle = '#451a03';
-  ctx.font = 'bold 13px "Noto Sans Sinhala", sans-serif';
-  ctx.fillText('තැන්පත් කළ යුතු මුළු එකතුව', rightX + rightW / 2, curY + 112);
-
-  // 7. Section 3: Bank Transfer Details
-  curY += bannerH + 28;
-
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#1f2937';
-  ctx.font = 'bold 22px "Noto Sans Sinhala", Outfit, sans-serif';
-  ctx.fillText('2. බැංකු තැන්පතු විස්තර (Bank Transfer Details)', cardX + 36, curY);
-
-  curY += 16;
-  const bankCardX = cardX + 36;
-  const bankCardW = cardW - 72;
-  const bankCardH = 296;
-
-  drawCanvasRoundedRect(ctx, bankCardX, curY, bankCardW, bankCardH, 20, '#fcfbfa', '#e5e7eb', 1.5);
-
-  // Vintage Scroll Ribbon: "කලින් මුදල් තැන්පත් කළ යුතුය (COD නොමැත)"
-  const ribbonW = bankCardW - 140;
-  const ribbonH = 52;
-  const ribbonX = bankCardX + (bankCardW - ribbonW) / 2;
-  const ribbonY = curY + 16;
-
-  drawRibbonScroll(
-    ctx,
-    ribbonX,
-    ribbonY,
-    ribbonW,
-    ribbonH,
-    '⚠️ කලින් මුදල් තැන්පත් කළ යුතුය  (COD නොමැත)',
-    '#991b1b',
-    '#ffffff'
-  );
-
-  // Bank Details Layout
-  const detailY = ribbonY + ribbonH + 24;
-
-  // Bank Medallion Seal (Using user uploaded bank icon directly)
-  const bMedRadius = 42;
-  const bMedCx = bankCardX + 66;
-  const bMedCy = detailY + 60;
-
-  // Medallion outer gold backing circle
-  drawCanvasRoundedRect(ctx, bMedCx - bMedRadius, bMedCy - bMedRadius, bMedRadius * 2, bMedRadius * 2, bMedRadius, '#fef3c7', '#d97706', 2.5);
-
-  if (bankIcon) {
-    ctx.drawImage(bankIcon, bMedCx - 26, bMedCy - 26, 52, 52);
-  } else {
-    drawBankMedallion(ctx, bMedCx, bMedCy, bMedRadius);
+    ctx.fillStyle = COLORS.ink;
+    setFont(ctx, 800, 20);
+    ctx.fillText('LankaQR', qx + QR_TILE_W / 2, y + 200);
+    ctx.fillStyle = COLORS.text;
+    setFont(ctx, 500, 15);
+    ctx.fillText('ඕනෑම බැංකු App එකකින්', qx + QR_TILE_W / 2, y + 220);
+    ctx.fillText('Scan කරන්න', qx + QR_TILE_W / 2, y + 239);
   }
+}
 
-  // Bank & Branch Names
-  const bankTextX = bankCardX + 130;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = '#111827';
-  ctx.font = 'bold 23px Outfit, "Noto Sans Sinhala", sans-serif';
-  ctx.fillText(bankInfo.bankName || 'Commercial Bank (කොමර්ෂල් බැංකුව)', bankTextX, detailY + 36);
+function drawSteps(ctx, data, layout) {
+  const steps = DELIVERY_STEPS[data.deliveryMethod] || DELIVERY_STEPS.courier;
+  const y = layout.stepsY;
+  const colW = INNER / 3;
 
-  ctx.fillStyle = '#4b5563';
-  ctx.font = '500 17px "Noto Sans Sinhala", Outfit, sans-serif';
-  ctx.fillText(`ශාඛාව: ${bankInfo.branch || 'Homagama (හෝමාගම)'}`, bankTextX, detailY + 68);
-
-  ctx.fillStyle = '#1f2937';
-  ctx.font = 'bold 19px Outfit, "Noto Sans Sinhala", sans-serif';
-  ctx.fillText(`ගිණුමේ නම: ${bankInfo.accountName || 'LJ Pradeep'}`, bankTextX, detailY + 102);
-
-  // Account Number Display Box
-  const accBoxW = 410;
-  const accBoxH = 104;
-  const accBoxX = bankCardX + bankCardW - accBoxW - 24;
-  const accBoxY = detailY + 10;
-
-  drawCanvasRoundedRect(ctx, accBoxX, accBoxY, accBoxW, accBoxH, 16, '#f0fdf4', '#16a34a', 2);
-
-  ctx.textAlign = 'center';
-  ctx.fillStyle = '#15803d';
-  ctx.font = 'bold 13px Outfit, "Noto Sans Sinhala", sans-serif';
-  ctx.fillText('ගිණුම් අංකය (ACCOUNT NUMBER)', accBoxX + accBoxW / 2, accBoxY + 28);
-
-  const rawAcc = String(bankInfo.accountNumber || '8029909489');
-  const spacedAcc = rawAcc.length === 10
-    ? `${rawAcc.slice(0, 4)}  ${rawAcc.slice(4, 8)}  ${rawAcc.slice(8)}`
-    : rawAcc;
-
-  ctx.fillStyle = '#052e16';
-  ctx.font = 'bold 36px monospace, Outfit, sans-serif';
-  ctx.fillText(spacedAcc, accBoxX + accBoxW / 2, accBoxY + 68);
-
-  ctx.fillStyle = '#166534';
-  ctx.font = '500 13px "Noto Sans Sinhala", Outfit, sans-serif';
-  ctx.fillText('Commercial Bank • හෝමාගම ශාඛාව', accBoxX + accBoxW / 2, accBoxY + 92);
-
-  // 8. Section 4: What to Send After Payment (Next Steps)
-  curY += bankCardH + 26;
-
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#1f2937';
-  ctx.font = 'bold 21px "Noto Sans Sinhala", Outfit, sans-serif';
-  ctx.fillText('3. තැන්පතුවෙන් පසු එවන්න (Send After Deposit)', cardX + 36, curY);
-
-  curY += 14;
-  const stepsY = curY;
-  const stepCardH = 78;
-  const totalStepsW = cardW - 72;
-  const singleStepW = Math.round((totalStepsW - 48) / 3);
-
-  const steps = [
-    { num: '①', icon: '🧾', title: 'Deposit Slip', sub: 'බැංකු තැන්පතු පත්‍රිකාව' },
-    { num: '②', icon: '🔤', title: 'Name & Address', sub: 'English වලින් නම හා ලිපිනය' },
-    { num: '③', icon: '📞', title: 'Phone Number', sub: 'දුරකථන අංකය' }
-  ];
-
-  steps.forEach((step, idx) => {
-    const sX = cardX + 36 + idx * (singleStepW + 24);
-    drawCanvasRoundedRect(ctx, sX, stepsY, singleStepW, stepCardH, 14, '#f8fafc', '#cbd5e1', 1.5);
-
-    ctx.textAlign = 'left';
+  steps.forEach(([title, sub], i) => {
+    const cx = PAD + i * colW;
+    ctx.beginPath();
+    ctx.arc(cx + 19, y + 28, 19, 0, Math.PI * 2);
+    ctx.fillStyle = '#e6d3a8';
+    ctx.fill();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#5a3f08';
+    setFont(ctx, 800, 19);
+    ctx.fillText(String(i + 1), cx + 19, y + 29);
     ctx.textBaseline = 'alphabetic';
-    ctx.fillStyle = '#0f766e';
-    ctx.font = 'bold 20px Outfit, "Noto Sans Sinhala", sans-serif';
-    ctx.fillText(`${step.num} ${step.icon} ${step.title}`, sX + 16, stepsY + 34);
 
-    ctx.fillStyle = '#475569';
-    ctx.font = '500 15px "Noto Sans Sinhala", sans-serif';
-    ctx.fillText(step.sub, sX + 16, stepsY + 60);
-
-    if (idx < steps.length - 1) {
-      ctx.textAlign = 'center';
-      ctx.fillStyle = '#94a3b8';
-      ctx.font = 'bold 20px sans-serif';
-      ctx.fillText('➔', sX + singleStepW + 12, stepsY + 44);
-    }
+    const textW = colW - 62;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = COLORS.ink;
+    fitFontSize(ctx, title, textW, 700, 18, SANS, 14);
+    ctx.fillText(title, cx + 50, y + 22);
+    ctx.fillStyle = COLORS.text;
+    fitFontSize(ctx, sub, textW, 500, 18, SANS, 14);
+    ctx.fillText(sub, cx + 50, y + 47);
   });
+}
 
-  // 9. Section 5: WhatsApp Action Bar & Footer
-  curY = stepsY + stepCardH + 20;
+function drawWhatsAppBar(ctx, data, layout, assets) {
+  const { contactInfo = {} } = data;
+  const y = layout.waY;
+  fillRoundedRect(ctx, PAD, y, INNER, WA_H, 20, COLORS.whatsapp);
+  if (assets.whatsappIcon) ctx.drawImage(assets.whatsappIcon, PAD + 26, y + 20, 52, 52);
 
-  const waBarW = cardW - 72;
-  const waBarH = 74;
-  const waBarX = cardX + 36;
-
-  const waGrad = ctx.createLinearGradient(waBarX, curY, waBarX + waBarW, curY + waBarH);
-  waGrad.addColorStop(0, '#075e54');
-  waGrad.addColorStop(1, '#128c7e');
-
-  ctx.save();
-  ctx.shadowColor = 'rgba(18, 140, 126, 0.25)';
-  ctx.shadowBlur = 14;
-  ctx.shadowOffsetY = 4;
-  drawCanvasRoundedRect(ctx, waBarX, curY, waBarW, waBarH, 16, waGrad, null);
-  ctx.restore();
-
-  // WhatsApp Icon (Using user uploaded icon directly)
-  if (whatsappIcon) {
-    ctx.drawImage(whatsappIcon, waBarX + 18, curY + (waBarH - 50) / 2, 50, 50);
-  } else {
-    drawWhatsAppMedallion(ctx, waBarX + 44, curY + waBarH / 2, 24);
-  }
-
-  // WhatsApp Text
-  const waDisplay = contactInfo.whatsappDisplay || '071 521 5866';
   ctx.textAlign = 'left';
-  ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 23px Outfit, "Noto Sans Sinhala", sans-serif';
-  ctx.fillText(`WhatsApp ${waDisplay} වෙත විස්තර එවන්න`, waBarX + 80, curY + 37);
+  setFont(ctx, 700, 30);
+  ctx.fillText(contactInfo.whatsappDisplay || '', PAD + 96, y + 44);
+  setFont(ctx, 500, 18);
+  ctx.fillText('Slip එක සහ ඔබගේ විස්තර WhatsApp කරන්න', PAD + 96, y + 72);
+}
 
-  ctx.fillStyle = '#d1fae5';
-  ctx.font = '500 15px "Noto Sans Sinhala", sans-serif';
-  ctx.fillText('(බැංකු තැන්පතු පත්‍රිකාව සහ ඔබගේ විස්තර WhatsApp කරන්න)', waBarX + 80, curY + 60);
-
-  // 10. Elegant Card Footer
-  const footerLineY = curY + waBarH + 24;
-  ctx.strokeStyle = '#e5e7eb';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(cardX + 40, footerLineY);
-  ctx.lineTo(cardX + cardW - 40, footerLineY);
-  ctx.stroke();
-
+function drawFooter(ctx, layout) {
   ctx.textAlign = 'center';
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = '#9ca3af';
-  ctx.font = '500 16px Outfit, "Noto Sans Sinhala", sans-serif';
-  ctx.fillText('Path Nirvana • හෝමාගම • ධර්ම දාන පොත් සේවාව • pathnirvana.org', w / 2, footerLineY + 28);
+  ctx.fillStyle = '#9a8f78';
+  setFont(ctx, 500, 16);
+  ctx.fillText('pathnirvana.org • පොත් මුද්‍රණ වියදමටත් අඩුවෙන් ධර්ම දානයක් ලෙස', W / 2, layout.footerY + 36);
 }
 
 /**
- * Main function: Generates the order card canvas, copies to clipboard or triggers fallback download
+ * Draws the order card into ctx (logical coordinates, W wide × layout.height tall)
  */
-export async function copyOrderCardScreenshot(orderData) {
-  if (document.fonts && document.fonts.ready) {
-    await document.fonts.ready;
+export function drawOrderCard(ctx, data, assets = {}) {
+  const layout = computeLayout(data);
+  ctx.fillStyle = COLORS.cream;
+  ctx.fillRect(0, 0, W, layout.height);
+
+  drawHero(ctx, data, assets);
+  drawReceipt(ctx, data, layout);
+  drawPayment(ctx, data, layout, assets);
+  drawSteps(ctx, data, layout);
+  drawWhatsAppBar(ctx, data, layout, assets);
+  drawFooter(ctx, layout);
+}
+
+function resolveAssetUrl(path) {
+  if (!path) return null;
+  const rel = path.startsWith('./') ? path.slice(2) : path;
+  return new URL(rel, window.location.href).href;
+}
+
+/**
+ * Renders the order card to a PNG blob
+ */
+export async function renderOrderCardBlob(orderData) {
+  if (document.fonts) {
+    await Promise.all(FONT_SPECS.map((f) => document.fonts.load(f, 'අආ Aa0').catch(() => null)));
   }
 
-  // Preload book covers and user-provided icons in parallel
-  const [bookCovers, lotusIcon, bankIcon, whatsappIcon] = await Promise.all([
+  const [bookCovers, lotusIcon, whatsappIcon, lankaQrImage] = await Promise.all([
     (async () => {
       const covers = {};
-      if (Array.isArray(orderData.activeBooks)) {
-        await Promise.all(
-          orderData.activeBooks.map(async (b) => {
-            if (b.coverImage) {
-              const coverRel = b.coverImage.startsWith('./') ? b.coverImage.slice(2) : b.coverImage;
-              const src = new URL(coverRel, window.location.href).href;
-              const img = await preloadImage(src);
-              if (img) covers[b.id] = img;
-            }
-          })
-        );
-      }
+      await Promise.all((orderData.activeBooks || []).map(async (b) => {
+        const img = await preloadImage(resolveAssetUrl(b.coverImage));
+        if (img) covers[b.id] = img;
+      }));
       return covers;
     })(),
     preloadImage(ICONS.lotus),
-    preloadImage(ICONS.bank),
-    preloadImage(ICONS.whatsapp)
+    preloadImage(ICONS.whatsapp),
+    preloadImage(resolveAssetUrl(orderData.lankaQrImage)),
   ]);
 
+  const { height } = computeLayout(orderData);
   const canvas = document.createElement('canvas');
-  const w = 1200;
-  const h = 1500; // Ultra-crisp 4:5 aspect ratio
-  canvas.width = w;
-  canvas.height = h;
+  canvas.width = W * SCALE;
+  canvas.height = height * SCALE;
   const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas 2D context not available');
+  ctx.scale(SCALE, SCALE);
 
-  if (!ctx) {
-    throw new Error('Canvas 2D context not available');
-  }
-
-  drawOrderCard(ctx, w, h, orderData, {
-    bookCovers,
-    lotusIcon,
-    bankIcon,
-    whatsappIcon
-  });
+  drawOrderCard(ctx, orderData, { bookCovers, lotusIcon, whatsappIcon, lankaQrImage });
 
   const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
-  if (!blob) {
-    throw new Error('Canvas blob generation failed');
-  }
+  if (!blob) throw new Error('Canvas blob generation failed');
+  return blob;
+}
 
-  // Try writing to clipboard
+/**
+ * Generates the order card and copies it to the clipboard, falling back to a download
+ */
+export async function copyOrderCardScreenshot(orderData) {
+  const blobPromise = renderOrderCardBlob(orderData);
+
+  // Passing the promise to ClipboardItem keeps the click's user activation valid
+  // while the image renders (needed by Safari, works in Chrome)
   let copied = false;
   if (navigator.clipboard && typeof ClipboardItem !== 'undefined' && navigator.clipboard.write) {
     try {
-      await navigator.clipboard.write([
-        new ClipboardItem({ 'image/png': blob })
-      ]);
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blobPromise })]);
       copied = true;
     } catch (clipErr) {
       console.warn('Clipboard write failed or permission blocked, falling back to download:', clipErr);
@@ -986,7 +591,7 @@ export async function copyOrderCardScreenshot(orderData) {
   }
 
   if (!copied) {
-    // Robust fallback: Trigger instant download so the user always receives the image!
+    const blob = await blobPromise;
     const blobUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = blobUrl;

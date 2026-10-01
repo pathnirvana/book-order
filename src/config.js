@@ -2,7 +2,8 @@
 // You can easily change these values to update rates, bank details, or book details.
 
 export const CONFIG = {
-  minOrderBooks: 50,
+  minOrderBooks: 50, // Below this, only pickup (Homagama) is available
+  quickQuantities: [0, 50, 75, 100], // One-tap quantity buttons under each book (0 resets)
   books: [
     {
       id: 'mindfulness',
@@ -60,7 +61,8 @@ export const CONFIG = {
       branch: "Homagama (හෝමාගම)",
       accountNumber: "8029909489",
       accountName: "LJ Pradeep",
-    }
+    },
+    lankaQrImage: "./lankaqr dialog.jpg", // Shown on the order card for LankaQR payments
   },
   contact: {
     email: "pathnirvana@gmail.com",
