@@ -4,6 +4,8 @@ import { CONFIG } from './config';
 import { copyOrderCardScreenshot } from './services/orderCardGenerator';
 
 const MIN_ORDER_BOOKS = CONFIG.minOrderBooks || 50;
+const COURIER_ENABLED = CONFIG.delivery.courier.enabled !== false;
+const DEFAULT_METHOD = COURIER_ENABLED ? 'courier' : 'pickmeFlash';
 
 // -------------------------------------------------------------
 // State Management & URL Query Initialization
@@ -12,7 +14,7 @@ function getInitialParams() {
   if (typeof window === 'undefined') {
     return {
       quantities: { mindfulness: 50, 'samantha-pattanaya': 0 },
-      method: 'courier'
+      method: DEFAULT_METHOD
     };
   }
 
@@ -47,10 +49,13 @@ function getInitialParams() {
     initQuantities['samantha-pattanaya'] = CONFIG.books[1]?.defaultQty ?? 0;
   }
 
-  let method = 'courier';
+  let method = DEFAULT_METHOD;
   const mParam = params.get('method') || params.get('m');
   if (mParam && ['courier', 'pickup', 'pickmeFlash'].includes(mParam)) {
     method = mParam;
+  }
+  if (method === 'courier' && !COURIER_ENABLED) {
+    method = DEFAULT_METHOD;
   }
 
   return { quantities: initQuantities, method };
@@ -548,6 +553,12 @@ function submitViaEmail() {
         </h1>
       </section>
 
+      <!-- Courier Discontinued Banner -->
+      <section v-if="!COURIER_ENABLED" class="bg-red-50 border border-red-200 rounded-xl p-3 text-center space-y-0.5" role="alert">
+        <p class="text-sm font-bold text-red-800">📢 {{ CONFIG.delivery.courier.discontinuedNoticeSinhala }}</p>
+        <p class="text-xs text-red-700">PickMe Flash (හෝමාගම සිට {{ CONFIG.delivery.pickmeFlash.radiusLimitKm }}km තුළ) හෝ පැමිණ ලබා ගැනීම පමණක් දැනට ලබා ගත හැක.</p>
+      </section>
+
       <!-- Step 1: Book Selection & Delivery Selection -->
       <section class="bg-bg-secondary rounded-xl border border-border-primary p-3 sm:p-4 shadow-xs space-y-3">
         <div class="flex items-center justify-between">
@@ -657,7 +668,7 @@ function submitViaEmail() {
         </p>
         <p v-else-if="isBelowMin" class="text-xs text-amber-800 bg-amber-50 p-2.5 rounded-lg border border-amber-200 flex items-start gap-1.5">
           <span>ℹ️</span>
-          <span>පොත් {{ MIN_ORDER_BOOKS }}ට අඩු ඇණවුම් <strong>පැමිණ ලබා ගැනීම</strong> සඳහා පමණි. කූරියර් / PickMe සඳහා තව පොත් <strong>{{ MIN_ORDER_BOOKS - totalBooksCount }}</strong>ක් එක් කරන්න.</span>
+          <span>පොත් {{ MIN_ORDER_BOOKS }}ට අඩු ඇණවුම් <strong>පැමිණ ලබා ගැනීම</strong> සඳහා පමණි. {{ COURIER_ENABLED ? 'කූරියර් / PickMe' : 'PickMe Flash' }} සඳහා තව පොත් <strong>{{ MIN_ORDER_BOOKS - totalBooksCount }}</strong>ක් එක් කරන්න.</span>
         </p>
 
         <!-- Delivery Method Radios -->
@@ -667,12 +678,13 @@ function submitViaEmail() {
             <!-- Courier -->
             <label 
               :class="['p-2.5 rounded-lg border flex items-center justify-center gap-1.5 text-center transition-all', 
-                isBelowMin ? 'border-border-primary opacity-50 cursor-not-allowed' :
+                (isBelowMin || !COURIER_ENABLED) ? 'border-border-primary opacity-50 cursor-not-allowed' :
                 deliveryMethod === 'courier' ? 'border-primary bg-primary-light/50 ring-1 ring-primary cursor-pointer' : 'border-border-primary hover:bg-bg-tertiary/40 cursor-pointer']"
             >
-              <input type="radio" v-model="deliveryMethod" value="courier" :disabled="isBelowMin" @change="onMethodPicked" class="sr-only" />
+              <input type="radio" v-model="deliveryMethod" value="courier" :disabled="isBelowMin || !COURIER_ENABLED" @change="onMethodPicked" class="sr-only" />
               <span class="text-xs font-bold text-text-primary">📦 කූරියර් Courier</span>
-              <span v-if="isBelowMin" class="text-[11px] text-text-secondary">(පොත් {{ MIN_ORDER_BOOKS }}+)</span>
+              <span v-if="!COURIER_ENABLED" class="text-[11px] text-red-700">(නවතා ඇත)</span>
+              <span v-else-if="isBelowMin" class="text-[11px] text-text-secondary">(පොත් {{ MIN_ORDER_BOOKS }}+)</span>
             </label>
 
             <!-- PickMe Flash -->
@@ -831,7 +843,7 @@ function submitViaEmail() {
             {{ deliveryMethod === 'pickup' ? '2. ඔබගේ විස්තර' : '2. ලබන්නාගේ විස්තර' }}
           </h2>
           <span v-if="deliveryMethod !== 'pickup'" class="text-[11px] text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-            Courier සඳහා Name & Address ඉංග්‍රීසියෙන්
+            Delivery සඳහා Name & Address ඉංග්‍රීසියෙන්
           </span>
         </div>
 

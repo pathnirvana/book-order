@@ -37,6 +37,8 @@ export const CONFIG = {
   delivery: {
     // Citypak Courier configuration
     courier: {
+      enabled: false, // Courier discontinued: tile stays disabled and a banner is shown
+      discontinuedNoticeSinhala: "කූරියර් සේවාව නවතා දමා ඇත.",
       baseWeightKg: 1.0, // Weight covered by base charge
       baseChargeLkr: 450, // Courier base rate
       additionalKgChargeLkr: 100, // Cost per additional kg (rounded up)

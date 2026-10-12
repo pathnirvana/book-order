@@ -14,7 +14,7 @@ The **Path Nirvana Book Order Webtool** is a specialized, lightweight web applic
 - **Minimum Order Requirement**: **50 books** total (`CONFIG.minOrderBooks = 50`) for Courier and PickMe Flash. Orders below 50 books are allowed for **Self-Pickup only**.
 - **No Cash on Delivery (Strict `COD නොමැත`)**: All orders require prior bank transfer deposit. Books are dispatched only after receiving the deposit receipt.
 - **Delivery Channels**:
-  1. **Island-wide Courier (Citypak)**: Weight-based tiered pricing with batch packaging costs.
+  1. **Island-wide Courier (Citypak)**: Weight-based tiered pricing with batch packaging costs. **Currently discontinued** (`CONFIG.delivery.courier.enabled = false`): a red banner at the top of the page shows `discontinuedNoticeSinhala`, the Courier tile is disabled with `(නවතා ඇත)`, the default method is PickMe Flash, and `?method=courier` links open on PickMe Flash. Set `enabled: true` to bring courier back.
   2. **PickMe Flash**: Same-day express within 20km of Homagama; delivery fare paid directly to driver upon receipt.
   3. **Self-Pickup (Homagama)**: Free pickup at Path Nirvana premises.
 
@@ -310,6 +310,7 @@ Generates the order card image via `src/services/orderCardGenerator.js` and writ
 10. **Pickup-only below 50 books**: courier/PickMe are disabled below the minimum, with auto-switch to pickup (section 4.1).
 11. **Quick quantity buttons** `0 · 50 · 75 · 100` (section 4.1a).
 12. **Fixes**: added the Rounding line (the total previously did not add up), full book titles on phones (they were cut off at 360 px), `ක්‍රමය` typo in the copied text (missing ZWJ), and consistent PickMe wording (`රියදුරුට ගෙවන්න`).
+13. **Courier discontinued (2026-10-12)**: added `courier.enabled` switch and top-of-page banner; only PickMe Flash (50+ books) and Pickup remain.
 
 ---
 
