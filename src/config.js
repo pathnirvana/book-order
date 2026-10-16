@@ -4,9 +4,16 @@
 export const CONFIG = {
   minOrderBooks: 50, // Below this, only pickup (Homagama) is available
   quickQuantities: [0, 50, 75, 100], // One-tap quantity buttons under each book (0 resets)
+  // urlParam: query-string key for the quantity (urlAliases: older keys still accepted)
+  // shortTitleSinhala: name used in the copied text; refName: name used in the order Reference line
+  // inStock: false shows the availability text as a badge, but the book can still be ordered
   books: [
     {
       id: 'mindfulness',
+      urlParam: 'sathiya',
+      urlAliases: ['q1', 'qty1', 'qty', 'q', 'mindfulness'],
+      shortTitleSinhala: "Mindfulness සතිය",
+      refName: 'Sathiya',
       titleSinhala: "Mindfulness සරලව දකිමු සතිය",
       costLkr: 80,
       weightGrams: 110,
@@ -21,16 +28,36 @@ export const CONFIG = {
     },
     {
       id: 'samantha-pattanaya',
+      urlParam: 'pattana',
+      urlAliases: ['q2', 'qty2', 'samantha-pattanaya'],
+      refName: 'Pattana',
       titleSinhala: "සමන්ත පට්ඨානය",
       costLkr: 60,
       weightGrams: 100,
       size: "14.7cm × 22.2cm",
       pages: 64,
-      inStock: true,
-      availabilitySinhala: "දැනට තොග ඇත",
+      inStock: false,
+      availabilitySinhala: "දැනට තොග නැත (ඇණවුම් කළ හැක)",
       noteSinhala: "ධර්ම දානයක් ලෙස මුද්‍රණ වියදමටත් වඩා අඩුවෙන් ලබා දේ.",
       pdfUrl: "https://tipitaka.lk/library/1220",
       coverImage: "./samantha-pattana.png",
+      defaultQty: 0,
+    },
+    {
+      id: 'pattana-prathya-vivaranaya',
+      urlParam: 'vivaranaya',
+      urlAliases: ['q3', 'qty3'],
+      refName: 'Vivaranaya',
+      titleSinhala: "පට්ඨාන ප්‍රත්‍ය විවරණය",
+      costLkr: 75,
+      weightGrams: 110,
+      size: "14.7cm × 22.2cm",
+      pages: 72,
+      inStock: true,
+      availabilitySinhala: "දැනට තොග ඇත",
+      noteSinhala: "පූජ්‍ය දිගන සුගතවංශ හිමියන් විසින් පවත්වන ලද පට්ඨාන ධර්ම දේශනාවේ ලිඛිත සංස්කරණයයි. ධර්ම දානයක් ලෙස මුද්‍රණ වියදමටත් වඩා අඩුවෙන් ලබා දේ.",
+      pdfUrl: null,
+      coverImage: "./pattana-prathya-vivaranaya.png",
       defaultQty: 0,
     }
   ],

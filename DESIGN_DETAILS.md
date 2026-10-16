@@ -38,6 +38,7 @@ The **Path Nirvana Book Order Webtool** is a specialized, lightweight web applic
 ├── public/                      # Static assets served at root
 │   ├── book-cover.png           # Thumbnail for "Mindfulness සරලව දකිමු සතිය"
 │   ├── samantha-pattana.png     # Thumbnail for "සමන්ත පට්ඨානය"
+│   ├── pattana-prathya-vivaranaya.png # Thumbnail for "පට්ඨාන ප්‍රත්‍ය විවරණය" (from ../book-transcription/output/cover.pdf)
 │   ├── lankaqr dialog.jpg       # LankaQR payment code shown on the order card
 │   ├── favicon.svg              # App favicon
 │   └── icons/                   # Direct user-supplied high-res PNG icons
@@ -178,8 +179,10 @@ Text boxes for book quantities enforce numeric-only characters:
 The app synchronizes state with browser query parameters bidirectionally:
 - **Supported Parameters**:
   - `method`: `courier` | `pickmeFlash` | `pickup`
-  - Mindfulness book quantity: `sathiya`, `q1`, `qty1`, `qty`, `q`, `mindfulness`
-  - Samantha Pattana book quantity: `pattana`, `q2`, `qty2`, `samantha-pattanaya`
+  - One key per book from its config: `urlParam` (written back to the URL) plus `urlAliases` (older keys, still read, removed on the next update)
+  - Mindfulness: `sathiya` (aliases `q1`, `qty1`, `qty`, `q`, `mindfulness`)
+  - Samantha Pattana: `pattana` (aliases `q2`, `qty2`, `samantha-pattanaya`)
+  - Pattana Prathya Vivaranaya: `vivaranaya` (aliases `q3`, `qty3`)
 - **Strict Query Rule**: If *any* book parameter is present in the URL, any unspecified book is initialized to `0` (preventing unwanted auto-injection or redirect overwriting).
 - **History Replace**: Whenever quantities or delivery methods change, `window.history.replaceState` updates the browser URL without page reload.
 
@@ -311,33 +314,36 @@ Generates the order card image via `src/services/orderCardGenerator.js` and writ
 11. **Quick quantity buttons** `0 · 50 · 75 · 100` (section 4.1a).
 12. **Fixes**: added the Rounding line (the total previously did not add up), full book titles on phones (they were cut off at 360 px), `ක්‍රමය` typo in the copied text (missing ZWJ), and consistent PickMe wording (`රියදුරුට ගෙවන්න`).
 13. **Courier discontinued (2026-10-12)**: added `courier.enabled` switch and top-of-page banner; only PickMe Flash (50+ books) and Pickup remain.
+14. **Books (2026-10-16)**: Samantha Pattana marked out of stock but still orderable (`inStock: false`, badge `දැනට තොග නැත (ඇණවුම් කළ හැක)`); added **පට්ඨාන ප්‍රත්‍ය විවරණය** (Rs. 75, 110 g, 72 pages); book URL keys and reference names moved into config.
 
 ---
 
 ## 9. Developer Guide: How to Extend or Maintain
 
 ### 9.1 Adding a New Book
-1. Open `src/config.js`.
-2. Add a new object to `CONFIG.books`:
+1. Open `src/config.js` and add an object to `CONFIG.books`:
    ```javascript
    {
      id: 'new-book-id',
+     urlParam: 'newbook',          // query-string key, e.g. ?newbook=50
+     urlAliases: [],               // older keys still accepted (optional)
+     refName: 'NewBook',           // used in the WhatsApp "Reference:" line
+     shortTitleSinhala: null,      // optional shorter name for the copied text
      titleSinhala: "පොතේ නම",
      costLkr: 100,
      weightGrams: 120,
      size: "14.7cm × 22.2cm",
      pages: 96,
-     inStock: true,
+     inStock: true,                // false: badge shows availabilitySinhala; book stays orderable; card adds "තොග නැත"
      availabilitySinhala: "දැනට තොග ඇත",
      noteSinhala: "ධර්ම දානයක් ලෙස ලබා දේ.",
-     pdfUrl: "https://tipitaka.lk/library/...",
+     pdfUrl: null,                 // or "https://tipitaka.lk/library/..."
      coverImage: "./new-book-cover.png",
      defaultQty: 0,
    }
    ```
-3. Place `new-book-cover.png` in `/public/`.
-4. In `src/App.vue`, URL parameter mappings in `getInitialParams` and `updateUrlParams` will automatically include the new book ID.
-5. `src/services/orderCardGenerator.js` adds a receipt row per active book and grows the canvas height to fit; the hero shows up to 3 covers.
+2. Place the cover (about 492 px wide) in `/public/`.
+3. Nothing else needs to change: URL parsing/sync, the copied text, the WhatsApp message and the order card all read from `CONFIG.books`. The card fans up to 3 covers.
 
 ### 9.2 Modifying Pricing or Delivery Rates
 - Update courier base rates, additional kg fees, or packaging charges inside `CONFIG.delivery.courier` in `src/config.js`. Calculations throughout the UI, copy text, and screenshot generator update automatically.

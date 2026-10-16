@@ -154,7 +154,7 @@ function receiptRows(data) {
   const { activeBooks = [], deliveryMethod, deliveryCost = 0, roundingAdjustment = 0, parcelWeightKg = 0 } = data;
   const rows = activeBooks.map((b) => ({
     label: b.titleSinhala,
-    note: `${b.quantity} × රු. ${b.costLkr}`,
+    note: `${b.quantity} × රු. ${b.costLkr}${b.inStock === false ? ' • තොග නැත' : ''}`,
     value: `රු. ${formatLkr(b.quantity * b.costLkr)}`,
   }));
 
@@ -283,7 +283,7 @@ function drawCoverFan(ctx, books, covers) {
   const placements = {
     1: [{ cx: 830, cy: 255, rot: -4, w: 200 }],
     2: [{ cx: 760, cy: 265, rot: -8, w: 190 }, { cx: 905, cy: 245, rot: 6, w: 190 }],
-    3: [{ cx: 715, cy: 270, rot: -10, w: 165 }, { cx: 835, cy: 250, rot: 0, w: 165 }, { cx: 955, cy: 270, rot: 10, w: 165 }],
+    3: [{ cx: 700, cy: 270, rot: -10, w: 165 }, { cx: 818, cy: 250, rot: 0, w: 165 }, { cx: 936, cy: 270, rot: 10, w: 165 }],
   }[shown.length];
   if (!placements) return;
 

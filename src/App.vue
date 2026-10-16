@@ -10,43 +10,27 @@ const DEFAULT_METHOD = COURIER_ENABLED ? 'courier' : 'pickmeFlash';
 // -------------------------------------------------------------
 // State Management & URL Query Initialization
 // -------------------------------------------------------------
+function bookUrlKeys(book) {
+  return [book.urlParam, ...(book.urlAliases || [])].filter(Boolean);
+}
+
 function getInitialParams() {
+  const defaultQuantities = Object.fromEntries(CONFIG.books.map(b => [b.id, b.defaultQty ?? 0]));
   if (typeof window === 'undefined') {
-    return {
-      quantities: { mindfulness: 50, 'samantha-pattanaya': 0 },
-      method: DEFAULT_METHOD
-    };
+    return { quantities: defaultQuantities, method: DEFAULT_METHOD };
   }
 
   const params = new URLSearchParams(window.location.search);
+  const hasAnyBookParam = CONFIG.books.some(b => bookUrlKeys(b).some(k => params.has(k)));
 
-  const hasSathiyaParam = params.has('sathiya') || params.has('q1') || params.has('qty1') || params.has('qty') || params.has('q') || params.has('mindfulness');
-  const hasPattanaParam = params.has('pattana') || params.has('q2') || params.has('qty2') || params.has('samantha-pattanaya');
-  const hasAnyBookParam = hasSathiyaParam || hasPattanaParam;
-
-  const initQuantities = {};
-
+  // If any book is explicitly specified in the URL, unspecified books must be 0
+  const initQuantities = hasAnyBookParam ? {} : defaultQuantities;
   if (hasAnyBookParam) {
-    // If any book is explicitly specified in the URL, unspecified books must be 0
-    if (hasSathiyaParam) {
-      const raw = params.get('sathiya') ?? params.get('q1') ?? params.get('qty1') ?? params.get('qty') ?? params.get('q') ?? params.get('mindfulness');
-      const v = parseInt(raw, 10);
-      initQuantities.mindfulness = (!isNaN(v) && v >= 0) ? v : 0;
-    } else {
-      initQuantities.mindfulness = 0;
-    }
-
-    if (hasPattanaParam) {
-      const raw = params.get('pattana') ?? params.get('q2') ?? params.get('qty2') ?? params.get('samantha-pattanaya');
-      const v = parseInt(raw, 10);
-      initQuantities['samantha-pattanaya'] = (!isNaN(v) && v >= 0) ? v : 0;
-    } else {
-      initQuantities['samantha-pattanaya'] = 0;
-    }
-  } else {
-    // Default fallback when visiting URL without any book params
-    initQuantities.mindfulness = CONFIG.books[0]?.defaultQty ?? 50;
-    initQuantities['samantha-pattanaya'] = CONFIG.books[1]?.defaultQty ?? 0;
+    CONFIG.books.forEach(b => {
+      const key = bookUrlKeys(b).find(k => params.has(k));
+      const v = key ? parseInt(params.get(key), 10) : 0;
+      initQuantities[b.id] = (!isNaN(v) && v >= 0) ? v : 0;
+    });
   }
 
   let method = DEFAULT_METHOD;
@@ -176,25 +160,15 @@ onMounted(() => {
 watch([quantities, deliveryMethod], () => {
   const url = new URL(window.location.href);
 
-  const sathiyaQty = Number(quantities.value.mindfulness) || 0;
-  const pattanaQty = Number(quantities.value['samantha-pattanaya']) || 0;
-
-  // Set if > 0, omit if 0
-  if (sathiyaQty > 0) {
-    url.searchParams.set('sathiya', sathiyaQty);
-  } else {
-    url.searchParams.delete('sathiya');
-  }
-
-  if (pattanaQty > 0) {
-    url.searchParams.set('pattana', pattanaQty);
-  } else {
-    url.searchParams.delete('pattana');
-  }
-
-  // Clean up any legacy keys
-  ['q1', 'q2', 'qty1', 'qty2', 'qty', 'q', 'mindfulness', 'samantha-pattanaya'].forEach(k => {
-    url.searchParams.delete(k);
+  CONFIG.books.forEach(b => {
+    const qty = Number(quantities.value[b.id]) || 0;
+    // Set if > 0, omit if 0; drop any legacy alias keys
+    (b.urlAliases || []).forEach(k => url.searchParams.delete(k));
+    if (qty > 0) {
+      url.searchParams.set(b.urlParam, qty);
+    } else {
+      url.searchParams.delete(b.urlParam);
+    }
   });
 
   url.searchParams.set('method', deliveryMethod.value);
@@ -351,7 +325,7 @@ function copyOrderSummaryText() {
   CONFIG.books.forEach(b => {
     const q = Number(quantities.value[b.id]) || 0;
     if (q > 0) {
-      const bookTitle = b.id === 'mindfulness' ? 'Mindfulness සතිය' : b.titleSinhala;
+      const bookTitle = b.shortTitleSinhala || b.titleSinhala;
       lines.push(`• ${bookTitle}: පොත් ${q}`);
     }
   });
@@ -480,11 +454,9 @@ const formattedOrderMessage = computed(() => {
   msg += `Phone: ${phone.value.trim()}\n`;
 
   // Reference: 50 Sathiya + 13 Pattana books for {name}
-  const refParts = [];
-  const qSathiya = Number(quantities.value.mindfulness) || 0;
-  const qPattana = Number(quantities.value['samantha-pattanaya']) || 0;
-  if (qSathiya > 0) refParts.push(`${qSathiya} Sathiya`);
-  if (qPattana > 0) refParts.push(`${qPattana} Pattana`);
+  const refParts = CONFIG.books
+    .filter(b => (Number(quantities.value[b.id]) || 0) > 0)
+    .map(b => `${Number(quantities.value[b.id])} ${b.refName || b.id}`);
   const bookRefStr = (refParts.length > 0 ? refParts.join(' + ') : 'Book') + ' books';
   const refLine = name.value.trim() ? `${bookRefStr} for ${name.value.trim()}` : bookRefStr;
   msg += `Reference: ${refLine}\n`;
@@ -597,7 +569,7 @@ function submitViaEmail() {
                   <span>•</span>
                   <span>පිටු {{ book.pages }}</span>
                   <span v-if="book.inStock === false" class="text-[11px] text-amber-800 bg-amber-100/90 px-1.5 py-0.2 rounded font-medium">
-                    තවමත් නැත
+                    {{ book.availabilitySinhala }}
                   </span>
                 </div>
 
